@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Counsellor {
+  id             String   @id @default(uuid())
+  name           String
+  email          String   @unique
+  specialisation String
+  languages      String[]
+  fee            Decimal
+  bio            String?
+  approved       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  availability   Availability[]
+  bookings       Booking[]
+}
+
+model Availability {
+  id           String     @id @default(uuid())
+  counsellorId String
+  counsellor   Counsellor @relation(fields: [counsellorId], references: [id])
+  startTime    DateTime   // stored in UTC
+  endTime      DateTime
+  isBooked     Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+
+  // Prevents double-booking at DB level (AC-4 for this task)
+  @@unique([counsellorId, startTime])
+}
+
+model Booking {
+  id             String     @id @default(uuid())
+  counsellorId   String
+  counsellor     Counsellor @relation(fields: [counsellorId], references: [id])
+  visitorName    String
+  visitorEmail   String
+  visitorPhone   String
+  startTime      DateTime
+  status         BookingStatus @default(PENDING)
+  createdAt      DateTime   @default(now())
+
+  payment        Payment?
+
+  @@unique([counsellorId, startTime]) // enforced again here at booking level
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+model Payment {
+  id            String   @id @default(uuid())
+  bookingId     String   @unique
+  booking       Booking  @relation(fields: [bookingId], references: [id])
+  amount        Decimal
+  status        PaymentStatus @default(INITIATED)
+  gatewayOrderId String?
+  gatewayPaymentId String?
+  createdAt     DateTime @default(now())
+}
+
+enum PaymentStatus {
+  INITIATED
+  SUCCESS
+  FAILED
+  REFUNDED
+}
