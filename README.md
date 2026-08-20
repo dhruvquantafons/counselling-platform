@@ -1,4 +1,4 @@
-# QuantaFONS — Online Counselling Platform
+# QuantaFONS - Online Counselling Platform
 
 A web-based counselling platform enabling visitors to browse counsellors, book sessions, pay online, and join automated video consultations.
 
