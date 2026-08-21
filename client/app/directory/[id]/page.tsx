@@ -22,7 +22,7 @@ export default async function CounsellorProfile({ params }: { params: Promise<{ 
       <p className="text-ink/80 mb-8">{counsellor.bio}</p>
       <div className="flex items-center justify-between border-t border-sage/15 pt-6">
         <p className="font-mono text-xl text-sage-dark">₹{counsellor.fee}</p>
-        <a href="/checkout" className="bg-sage text-white px-6 py-2 rounded-full text-sm">Book a Session</a>
+        <a href={`/checkout?counsellorId=${counsellor.id}`} className="bg-sage text-white px-6 py-2 rounded-full text-sm">Book a Session</a>
       </div>
     </main>
   );
