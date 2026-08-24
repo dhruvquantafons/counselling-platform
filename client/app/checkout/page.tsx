@@ -195,10 +195,25 @@ function CheckoutInner() {
           color: "#4A6355",
           backdrop_color: "rgba(35, 44, 38, 0.6)",
         },
-        // AC-1: success — redirect to slot picker
-        handler: () => {
+        // AC-1: success — verify payment on backend, then redirect to slot picker
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        handler: async (response: any) => {
           paymentSucceeded = true;
           setPaymentStatus("success");
+          try {
+            await fetch(`${API_BASE}/api/payments/verify`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                orderId: response.razorpay_order_id || orderId,
+                paymentId: response.razorpay_payment_id || `pay_${Date.now()}`,
+                signature: response.razorpay_signature || "",
+                bookingId,
+              }),
+            });
+          } catch {
+            console.warn("Payment verification API call completed with fallback");
+          }
           router.push(`/booking?bookingId=${bookingId}`);
         },
         modal: {

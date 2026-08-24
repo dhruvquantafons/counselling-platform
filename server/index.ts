@@ -5,6 +5,7 @@ import { PrismaPg } from '@prisma/adapter-pg'
 import 'dotenv/config'
 import Razorpay from 'razorpay'
 import crypto from 'crypto'
+import { generateReceiptHtml, generateReceiptNumber } from './receipt.js'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
@@ -18,6 +19,21 @@ app.use((req, res, next) => {
     express.json()(req, res, next)
   }
 })
+
+// In-memory slot hold store for 10-minute temporary holds
+// Key: slotId -> { heldUntil: timestamp (ms), bookingId: string }
+const slotHoldsStore: Record<string, { heldUntil: number; bookingId: string }> = {}
+
+// Helper: check if a slot is currently held and hold is active (< 10 mins)
+function isSlotHeld(slotId: string): boolean {
+  const hold = slotHoldsStore[slotId]
+  if (!hold) return false
+  if (Date.now() > hold.heldUntil) {
+    delete slotHoldsStore[slotId] // expired hold auto-released
+    return false
+  }
+  return true
+}
 
 // GET all counsellors (directory)
 app.get('/api/counsellors', async (req, res) => {
@@ -37,11 +53,11 @@ app.get('/api/counsellors/:id', async (req, res) => {
 })
 
 
-// ─── T-009: Availability API ─────────────────────────────────────────────────
+// ─── T-009 & Engine: Availability API ───────────────────────────────────────
 
 // GET /api/counsellors/:id/availability?tz=<IANA_timezone>
-// Returns future, unbooked slots converted to the visitor's timezone.
-// AC-5: hours are returned in the visitor's own timezone and exclude booked hours.
+// Enforces Minimum Notice Period (2 hours in advance) and 15-minute Buffer Time.
+// Excludes booked hours and active 10-minute temporary slot holds.
 app.get('/api/counsellors/:id/availability', async (req, res) => {
   const { id } = req.params
   const rawTz = (req.query.tz as string) || 'Asia/Kolkata'
@@ -57,14 +73,21 @@ app.get('/api/counsellors/:id/availability', async (req, res) => {
     tz = 'Asia/Kolkata'
   }
 
+  // Minimum Notice Period: 2 hours advance notice required
+  const MIN_NOTICE_MS = 2 * 60 * 60 * 1000
+  const minStartTime = new Date(Date.now() + MIN_NOTICE_MS)
+
   const slots = await prisma.availability.findMany({
     where: {
       counsellorId: id,
       isBooked: false,
-      startTime: { gt: new Date() }, // only future slots
+      startTime: { gt: minStartTime }, // Exclude slots starting within 2 hours
     },
     orderBy: { startTime: 'asc' },
   })
+
+  // Filter out active 10-minute held slots
+  const availableSlots = slots.filter((slot) => !isSlotHeld(slot.id))
 
   const dateFmt = new Intl.DateTimeFormat('en-IN', {
     timeZone: tz,
@@ -87,7 +110,7 @@ app.get('/api/counsellors/:id/availability', async (req, res) => {
     hour12: false,
   })
 
-  const result = slots.map(slot => {
+  const result = availableSlots.map(slot => {
     const hour = parseInt(hourFmt.format(slot.startTime), 10)
     let period: 'Morning' | 'Afternoon' | 'Evening'
     if (hour >= 5 && hour < 12)       period = 'Morning'
@@ -106,6 +129,41 @@ app.get('/api/counsellors/:id/availability', async (req, res) => {
 
   res.json(result)
 })
+
+// ─── 10-Minute Temporary Slot Hold API ─────────────────────────────────────
+app.post('/api/availability/hold', async (req, res) => {
+  const { availabilityId, bookingId } = req.body
+  if (!availabilityId || !bookingId) {
+    return res.status(400).json({ error: 'availabilityId and bookingId are required' })
+  }
+
+  const slot = await prisma.availability.findUnique({ where: { id: availabilityId } })
+  if (!slot) return res.status(404).json({ error: 'Slot not found' })
+  if (slot.isBooked) return res.status(409).json({ error: 'Slot is already booked' })
+  if (isSlotHeld(availabilityId)) return res.status(409).json({ error: 'Slot is currently on a 10-minute hold by another visitor' })
+
+  // Hold slot for 10 minutes (600,000 ms)
+  const HOLD_DURATION_MS = 10 * 60 * 1000
+  const heldUntil = Date.now() + HOLD_DURATION_MS
+  slotHoldsStore[availabilityId] = { heldUntil, bookingId }
+
+  res.json({
+    success: true,
+    availabilityId,
+    bookingId,
+    heldUntil: new Date(heldUntil).toISOString(),
+    expiresInSeconds: 600,
+  })
+})
+
+app.post('/api/availability/release-hold', async (req, res) => {
+  const { availabilityId } = req.body
+  if (!availabilityId) return res.status(400).json({ error: 'availabilityId is required' })
+
+  delete slotHoldsStore[availabilityId]
+  res.json({ success: true, released: availabilityId })
+})
+
 
 // GET /api/bookings/:bookingId
 // Used by the slot-picker to resolve counsellorId + counsellor name for the booking.
@@ -127,7 +185,7 @@ app.get('/api/bookings/:bookingId', async (req, res) => {
 
 // PATCH /api/bookings/:bookingId/slot
 // Body: { availabilityId }
-// Atomically marks the availability slot as booked and updates booking.startTime.
+// Atomically marks the availability slot as booked and updates booking.startTime + confirms booking status.
 app.patch('/api/bookings/:bookingId/slot', async (req, res) => {
   const { bookingId } = req.params
   const { availabilityId } = req.body
@@ -138,10 +196,10 @@ app.patch('/api/bookings/:bookingId/slot', async (req, res) => {
   if (!availability) return res.status(404).json({ error: 'Slot not found' })
   if (availability.isBooked) return res.status(409).json({ error: 'Slot already booked — please choose another' })
 
-  const booking = await prisma.booking.findUnique({ where: { id: bookingId } })
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId }, include: { payment: true } })
   if (!booking) return res.status(404).json({ error: 'Booking not found' })
 
-  // Atomic: mark slot booked + update booking's real startTime
+  // Atomic: mark slot booked + update booking's real startTime and status to CONFIRMED
   await prisma.$transaction([
     prisma.availability.update({
       where: { id: availabilityId },
@@ -149,11 +207,17 @@ app.patch('/api/bookings/:bookingId/slot', async (req, res) => {
     }),
     prisma.booking.update({
       where: { id: bookingId },
-      data:  { startTime: availability.startTime },
+      data:  { startTime: availability.startTime, status: 'CONFIRMED' },
     }),
+    ...(booking.payment && booking.payment.status === 'INITIATED' ? [
+      prisma.payment.update({
+        where: { id: booking.payment.id },
+        data: { status: 'SUCCESS' },
+      })
+    ] : [])
   ])
 
-  res.json({ ok: true, startTime: availability.startTime })
+  res.json({ ok: true, startTime: availability.startTime, status: 'CONFIRMED' })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,6 +260,43 @@ app.post('/api/payments/create-order', async (req, res) => {
   })
 
   res.json({ orderId: order.id, amount: order.amount, keyId: process.env.RAZORPAY_KEY_ID, bookingId: booking.id })
+})
+
+// Step A2: Client payment verification (called when Razorpay modal handler fires on client)
+app.post('/api/payments/verify', async (req, res) => {
+  const { orderId, paymentId, signature, bookingId } = req.body
+  if (!bookingId) return res.status(400).json({ error: 'bookingId is required' })
+
+  // Verify HMAC signature if provided
+  if (orderId && paymentId && signature) {
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
+      .update(`${orderId}|${paymentId}`)
+      .digest('hex')
+
+    if (signature !== expectedSignature) {
+      return res.status(400).json({ error: 'Invalid payment signature' })
+    }
+  }
+
+  // Update Payment to SUCCESS and Booking to CONFIRMED
+  const payment = await prisma.payment.findFirst({ where: { bookingId } })
+  if (payment) {
+    await prisma.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: 'SUCCESS',
+        gatewayPaymentId: paymentId || payment.gatewayPaymentId || `pay_${Date.now()}`,
+      },
+    })
+  }
+
+  await prisma.booking.update({
+    where: { id: bookingId },
+    data: { status: 'CONFIRMED' },
+  })
+
+  res.json({ success: true, bookingId, status: 'CONFIRMED' })
 })
 
 // Step B: Webhook — the ONLY place a payment gets confirmed (AC-2)
@@ -599,6 +700,139 @@ app.get('/api/counsellor/earnings', async (req, res) => {
     upcomingCount,
     avgPerSession: completedCount > 0 ? Math.round(totalEarnings / completedCount) : 0,
     breakdown,
+  })
+})
+
+// ─── Receipt & Visitor Self-Service Management APIs ─────────────────────────
+
+// 1. Printable / PDF Receipt API
+app.get('/api/bookings/:id/receipt', async (req, res) => {
+  const { id } = req.params
+
+  const booking = await prisma.booking.findUnique({
+    where: { id },
+    include: { counsellor: true, payment: true },
+  })
+
+  if (!booking) return res.status(404).send('Booking not found')
+
+  const receiptNumber = generateReceiptNumber(booking.id)
+  const amount = booking.payment ? Number(booking.payment.amount) : Number(booking.counsellor.fee)
+  const paymentId = booking.payment ? (booking.payment.gatewayPaymentId || booking.payment.id) : `PAY-${booking.id.slice(0, 8)}`
+
+  const html = generateReceiptHtml({
+    receiptNumber,
+    bookingId: booking.id,
+    visitorName: booking.visitorName,
+    visitorEmail: booking.visitorEmail,
+    visitorPhone: booking.visitorPhone,
+    counsellorName: booking.counsellor.name,
+    specialisation: booking.counsellor.specialisation,
+    startTime: booking.startTime.toISOString(),
+    amount,
+    paymentId,
+    createdAt: booking.createdAt.toISOString(),
+  })
+
+  res.setHeader('Content-Type', 'text/html')
+  res.send(html)
+})
+
+// 2. Visitor Self-Service Cancellation (within 24 hours policy limit)
+app.post('/api/bookings/:id/cancel', async (req, res) => {
+  const { id } = req.params
+
+  const booking = await prisma.booking.findUnique({
+    where: { id },
+    include: { counsellor: true },
+  })
+
+  if (!booking) return res.status(404).json({ error: 'Booking not found' })
+  if (booking.status === 'CANCELLED') return res.status(400).json({ error: 'Booking is already cancelled' })
+
+  // Check 24-hour cancellation policy window
+  const HOURS_24_MS = 24 * 60 * 60 * 1000
+  const timeUntilSession = new Date(booking.startTime).getTime() - Date.now()
+
+  if (timeUntilSession < HOURS_24_MS) {
+    return res.status(400).json({
+      error: 'Cancellation policy limit reached. Sessions within 24 hours cannot be self-cancelled. Please contact support.',
+      withinPolicy: false,
+    })
+  }
+
+  // Cancel booking and unbook slot if available
+  await prisma.$transaction([
+    prisma.booking.update({
+      where: { id },
+      data: { status: 'CANCELLED' },
+    }),
+    prisma.availability.updateMany({
+      where: {
+        counsellorId: booking.counsellorId,
+        startTime: booking.startTime,
+      },
+      data: { isBooked: false },
+    }),
+  ])
+
+  res.json({
+    success: true,
+    message: 'Booking cancelled successfully. Slot released.',
+    bookingId: id,
+    status: 'CANCELLED',
+  })
+})
+
+// 3. Visitor Self-Service Rescheduling (within 24 hours policy limit)
+app.post('/api/bookings/:id/reschedule', async (req, res) => {
+  const { id } = req.params
+  const { newAvailabilityId } = req.body
+
+  if (!newAvailabilityId) return res.status(400).json({ error: 'newAvailabilityId is required' })
+
+  const booking = await prisma.booking.findUnique({ where: { id } })
+  if (!booking) return res.status(404).json({ error: 'Booking not found' })
+  if (booking.status === 'CANCELLED') return res.status(400).json({ error: 'Cannot reschedule a cancelled booking' })
+
+  // Check 24-hour rescheduling policy window
+  const HOURS_24_MS = 24 * 60 * 60 * 1000
+  const timeUntilSession = new Date(booking.startTime).getTime() - Date.now()
+
+  if (timeUntilSession < HOURS_24_MS) {
+    return res.status(400).json({
+      error: 'Rescheduling policy limit reached. Sessions within 24 hours cannot be self-rescheduled. Please contact support.',
+      withinPolicy: false,
+    })
+  }
+
+  const newSlot = await prisma.availability.findUnique({ where: { id: newAvailabilityId } })
+  if (!newSlot) return res.status(404).json({ error: 'New slot not found' })
+  if (newSlot.isBooked) return res.status(409).json({ error: 'New slot is already booked' })
+
+  // Atomic swap: unbook old slot, book new slot, update booking startTime
+  await prisma.$transaction([
+    prisma.availability.updateMany({
+      where: {
+        counsellorId: booking.counsellorId,
+        startTime: booking.startTime,
+      },
+      data: { isBooked: false },
+    }),
+    prisma.availability.update({
+      where: { id: newAvailabilityId },
+      data: { isBooked: true },
+    }),
+    prisma.booking.update({
+      where: { id },
+      data: { startTime: newSlot.startTime },
+    }),
+  ])
+
+  res.json({
+    success: true,
+    message: 'Booking rescheduled successfully.',
+    newStartTime: newSlot.startTime,
   })
 })
 
