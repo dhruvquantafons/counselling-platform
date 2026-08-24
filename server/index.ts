@@ -113,5 +113,33 @@ app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), asy
   res.json({ received: true })
 })
 
+// Step C: Client-side failure notification — mark payment FAILED + booking CANCELLED
+// Called when Razorpay fires the `payment.failed` event on the frontend.
+// The webhook only fires on success (payment.captured), so failure must be
+// recorded via this explicit client call.
+app.post('/api/payments/mark-failed', async (req, res) => {
+  const { bookingId } = req.body
+  if (!bookingId) return res.status(400).json({ error: 'bookingId is required' })
+
+  const payment = await prisma.payment.findUnique({ where: { bookingId } })
+  if (!payment) return res.status(404).json({ error: 'Payment not found' })
+
+  // Only mark failed if it is still INITIATED (idempotent guard)
+  if (payment.status !== 'INITIATED') {
+    return res.json({ skipped: true, reason: 'Payment already has terminal status' })
+  }
+
+  await prisma.payment.update({
+    where: { id: payment.id },
+    data: { status: 'FAILED' },
+  })
+  await prisma.booking.update({
+    where: { id: bookingId },
+    data: { status: 'CANCELLED' },
+  })
+
+  res.json({ ok: true })
+})
+
 const PORT = process.env.PORT || 4000
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`))

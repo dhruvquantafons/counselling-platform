@@ -15,6 +15,12 @@ export default {
         sans: ["var(--font-body)", "sans-serif"],
         mono: ["var(--font-mono)", "monospace"],
       },
+      boxShadow: {
+        soft: "0 2px 12px rgba(74, 99, 85, 0.06)",
+        "soft-md": "0 4px 16px rgba(74, 99, 85, 0.08)",
+        "soft-lg": "0 8px 24px rgba(74, 99, 85, 0.1)",
+        warm: "0 4px 20px rgba(184, 128, 74, 0.1)",
+      },
     },
   },
 } satisfies Config;
