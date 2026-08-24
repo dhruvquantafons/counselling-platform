@@ -280,11 +280,10 @@ function SlotPickerInner() {
                                 key={slot.id}
                                 id={`slot-${slot.id}`}
                                 onClick={() => setSelectedSlot(isSelected ? null : slot)}
-                                className={`font-mono text-sm rounded-full px-5 py-3 transition-all duration-200 active:scale-[0.97] ${
-                                  isSelected
+                                className={`font-mono text-sm rounded-full px-5 py-3 transition-all duration-200 active:scale-[0.97] ${isSelected
                                     ? "bg-sage text-white border-2 border-sage shadow-soft"
                                     : "border border-sage/20 bg-white text-ink hover:bg-sage hover:text-white hover:border-sage hover:shadow-soft"
-                                }`}
+                                  }`}
                               >
                                 {slot.time}
                               </button>
@@ -303,9 +302,8 @@ function SlotPickerInner() {
 
       {/* Sticky confirm footer */}
       <div
-        className={`mt-12 transition-all duration-300 ${
-          selectedSlot ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"
-        }`}
+        className={`mt-12 transition-all duration-300 ${selectedSlot ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"
+          }`}
       >
         {selectedSlot && (
           <div className="bg-white border border-sage/15 rounded-2xl p-4 shadow-soft-md flex items-center justify-between gap-4">
