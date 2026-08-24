@@ -37,6 +37,127 @@ app.get('/api/counsellors/:id', async (req, res) => {
 })
 
 
+// ─── T-009: Availability API ─────────────────────────────────────────────────
+
+// GET /api/counsellors/:id/availability?tz=<IANA_timezone>
+// Returns future, unbooked slots converted to the visitor's timezone.
+// AC-5: hours are returned in the visitor's own timezone and exclude booked hours.
+app.get('/api/counsellors/:id/availability', async (req, res) => {
+  const { id } = req.params
+  const rawTz = (req.query.tz as string) || 'Asia/Kolkata'
+
+  const counsellor = await prisma.counsellor.findUnique({ where: { id } })
+  if (!counsellor) return res.status(404).json({ error: 'Counsellor not found' })
+
+  // Validate timezone — fall back to IST if invalid
+  let tz = rawTz
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: rawTz })
+  } catch {
+    tz = 'Asia/Kolkata'
+  }
+
+  const slots = await prisma.availability.findMany({
+    where: {
+      counsellorId: id,
+      isBooked: false,
+      startTime: { gt: new Date() }, // only future slots
+    },
+    orderBy: { startTime: 'asc' },
+  })
+
+  const dateFmt = new Intl.DateTimeFormat('en-IN', {
+    timeZone: tz,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })
+
+  const timeFmt = new Intl.DateTimeFormat('en-IN', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+
+  // 24-hour formatter to bucket into Morning / Afternoon / Evening
+  const hourFmt = new Intl.DateTimeFormat('en-IN', {
+    timeZone: tz,
+    hour: 'numeric',
+    hour12: false,
+  })
+
+  const result = slots.map(slot => {
+    const hour = parseInt(hourFmt.format(slot.startTime), 10)
+    let period: 'Morning' | 'Afternoon' | 'Evening'
+    if (hour >= 5 && hour < 12)       period = 'Morning'
+    else if (hour >= 12 && hour < 17) period = 'Afternoon'
+    else                              period = 'Evening'
+
+    return {
+      id: slot.id,
+      startTimeUtc: slot.startTime.toISOString(),
+      endTimeUtc:   slot.endTime.toISOString(),
+      date:         dateFmt.format(slot.startTime),
+      time:         timeFmt.format(slot.startTime).toUpperCase().replace('\u202F', ' '),
+      period,
+    }
+  })
+
+  res.json(result)
+})
+
+// GET /api/bookings/:bookingId
+// Used by the slot-picker to resolve counsellorId + counsellor name for the booking.
+app.get('/api/bookings/:bookingId', async (req, res) => {
+  const booking = await prisma.booking.findUnique({
+    where: { id: req.params.bookingId },
+    include: { counsellor: { select: { id: true, name: true } } },
+  })
+  if (!booking) return res.status(404).json({ error: 'Booking not found' })
+
+  res.json({
+    id: booking.id,
+    counsellorId:   booking.counsellorId,
+    counsellorName: booking.counsellor.name,
+    visitorName:    booking.visitorName,
+    status:         booking.status,
+  })
+})
+
+// PATCH /api/bookings/:bookingId/slot
+// Body: { availabilityId }
+// Atomically marks the availability slot as booked and updates booking.startTime.
+app.patch('/api/bookings/:bookingId/slot', async (req, res) => {
+  const { bookingId } = req.params
+  const { availabilityId } = req.body
+
+  if (!availabilityId) return res.status(400).json({ error: 'availabilityId is required' })
+
+  const availability = await prisma.availability.findUnique({ where: { id: availabilityId } })
+  if (!availability) return res.status(404).json({ error: 'Slot not found' })
+  if (availability.isBooked) return res.status(409).json({ error: 'Slot already booked — please choose another' })
+
+  const booking = await prisma.booking.findUnique({ where: { id: bookingId } })
+  if (!booking) return res.status(404).json({ error: 'Booking not found' })
+
+  // Atomic: mark slot booked + update booking's real startTime
+  await prisma.$transaction([
+    prisma.availability.update({
+      where: { id: availabilityId },
+      data:  { isBooked: true },
+    }),
+    prisma.booking.update({
+      where: { id: bookingId },
+      data:  { startTime: availability.startTime },
+    }),
+  ])
+
+  res.json({ ok: true, startTime: availability.startTime })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID!,
   key_secret: process.env.RAZORPAY_KEY_SECRET!,
