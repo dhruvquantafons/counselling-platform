@@ -262,5 +262,345 @@ app.post('/api/payments/mark-failed', async (req, res) => {
   res.json({ ok: true })
 })
 
+// ─── Section 3.6: Counsellor Admin Panel APIs ────────────────────────────────
+
+// In-memory store for session notes and pending profile approvals
+const sessionNotesStore: Record<string, { note: string; updatedAt: string }> = {}
+const pendingProfilesStore: Record<string, {
+  bio?: string
+  fee?: number
+  specialisation?: string
+  languages?: string[]
+  photoUrl?: string
+  updatedAt: string
+}> = {}
+
+// 1. Login Step 1: Email & Password
+app.post('/api/counsellor/auth/login', async (req, res) => {
+  const { email, password } = req.body
+  if (!email) return res.status(400).json({ error: 'Email is required' })
+
+  const counsellor = await prisma.counsellor.findUnique({ where: { email } })
+  if (!counsellor) {
+    return res.status(401).json({ error: 'Invalid email or password' })
+  }
+
+  // Accept demo login for seeded counsellors
+  res.json({
+    step: '2FA_REQUIRED',
+    tempToken: counsellor.id,
+    message: '2FA verification code sent. Use 123456 to verify.',
+    hintCode: '123456',
+  })
+})
+
+// 2. Login Step 2: 2FA Verification
+app.post('/api/counsellor/auth/verify-2fa', async (req, res) => {
+  const { tempToken, code } = req.body
+  if (!tempToken || !code) {
+    return res.status(400).json({ error: 'Temporary token and 2FA code are required' })
+  }
+
+  // Accept 123456 or any 6-digit code for 2FA demo
+  if (code.trim().length !== 6) {
+    return res.status(400).json({ error: 'Invalid 2FA code. Code must be 6 digits.' })
+  }
+
+  const counsellor = await prisma.counsellor.findUnique({ where: { id: tempToken } })
+  if (!counsellor) {
+    return res.status(404).json({ error: 'Counsellor session expired or invalid' })
+  }
+
+  res.json({
+    success: true,
+    token: counsellor.id,
+    counsellor: {
+      id: counsellor.id,
+      name: counsellor.name,
+      email: counsellor.email,
+      specialisation: counsellor.specialisation,
+      languages: counsellor.languages,
+      fee: Number(counsellor.fee),
+      bio: counsellor.bio,
+      approved: counsellor.approved,
+      pendingApproval: !!pendingProfilesStore[counsellor.id],
+      pendingChanges: pendingProfilesStore[counsellor.id] || null,
+    },
+  })
+})
+
+// 3. Get current logged-in counsellor profile
+app.get('/api/counsellor/me', async (req, res) => {
+  const counsellorId = req.query.counsellorId as string
+  if (!counsellorId) return res.status(400).json({ error: 'counsellorId is required' })
+
+  const counsellor = await prisma.counsellor.findUnique({ where: { id: counsellorId } })
+  if (!counsellor) return res.status(404).json({ error: 'Counsellor not found' })
+
+  res.json({
+    id: counsellor.id,
+    name: counsellor.name,
+    email: counsellor.email,
+    specialisation: counsellor.specialisation,
+    languages: counsellor.languages,
+    fee: Number(counsellor.fee),
+    bio: counsellor.bio,
+    approved: counsellor.approved,
+    pendingApproval: !!pendingProfilesStore[counsellor.id],
+    pendingChanges: pendingProfilesStore[counsellor.id] || null,
+  })
+})
+
+// 4. Availability: List all slots for a counsellor
+app.get('/api/counsellor/availability', async (req, res) => {
+  const counsellorId = req.query.counsellorId as string
+  if (!counsellorId) return res.status(400).json({ error: 'counsellorId is required' })
+
+  const slots = await prisma.availability.findMany({
+    where: { counsellorId },
+    orderBy: { startTime: 'asc' },
+  })
+
+  res.json(slots)
+})
+
+// 5. Availability: Add single slot
+app.post('/api/counsellor/availability', async (req, res) => {
+  const { counsellorId, startTime, endTime } = req.body
+  if (!counsellorId || !startTime || !endTime) {
+    return res.status(400).json({ error: 'counsellorId, startTime, and endTime are required' })
+  }
+
+  try {
+    const slot = await prisma.availability.create({
+      data: {
+        counsellorId,
+        startTime: new Date(startTime),
+        endTime: new Date(endTime),
+        isBooked: false,
+      },
+    })
+    res.json(slot)
+  } catch {
+    res.status(409).json({ error: 'A slot already exists for this start time' })
+  }
+})
+
+// 6. Availability: Withdraw an unbooked slot
+app.delete('/api/counsellor/availability/:id', async (req, res) => {
+  const { id } = req.params
+  const slot = await prisma.availability.findUnique({ where: { id } })
+  if (!slot) return res.status(404).json({ error: 'Slot not found' })
+  if (slot.isBooked) return res.status(400).json({ error: 'Cannot withdraw a booked slot' })
+
+  await prisma.availability.delete({ where: { id } })
+  res.json({ success: true, id })
+})
+
+// 7. Availability: Apply Recurring Weekly Pattern
+app.post('/api/counsellor/availability/recurring', async (req, res) => {
+  const { counsellorId, startDate, endDate, daysOfWeek, timeSlots } = req.body
+  if (!counsellorId || !startDate || !endDate || !Array.isArray(daysOfWeek) || !Array.isArray(timeSlots)) {
+    return res.status(400).json({ error: 'Invalid parameters for recurring schedule' })
+  }
+
+  const start = new Date(startDate)
+  const end = new Date(endDate)
+  let createdCount = 0
+
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dayNum = d.getDay() // 0 = Sun, 1 = Mon ...
+    if (daysOfWeek.includes(dayNum)) {
+      for (const slotTime of timeSlots) {
+        const [startH, startM] = slotTime.start.split(':').map(Number)
+        const [endH, endM] = slotTime.end.split(':').map(Number)
+
+        const startTime = new Date(d)
+        startTime.setHours(startH, startM, 0, 0)
+
+        const endTime = new Date(d)
+        endTime.setHours(endH, endM, 0, 0)
+
+        try {
+          await prisma.availability.create({
+            data: {
+              counsellorId,
+              startTime,
+              endTime,
+              isBooked: false,
+            },
+          })
+          createdCount++
+        } catch {
+          // Ignore duplicate slots
+        }
+      }
+    }
+  }
+
+  res.json({ success: true, createdCount })
+})
+
+// 8. Availability: Block Date
+app.post('/api/counsellor/availability/block-date', async (req, res) => {
+  const { counsellorId, date } = req.body
+  if (!counsellorId || !date) return res.status(400).json({ error: 'counsellorId and date are required' })
+
+  const targetDate = new Date(date)
+  const startOfDay = new Date(targetDate)
+  startOfDay.setHours(0, 0, 0, 0)
+
+  const endOfDay = new Date(targetDate)
+  endOfDay.setHours(23, 59, 59, 999)
+
+  const result = await prisma.availability.deleteMany({
+    where: {
+      counsellorId,
+      isBooked: false,
+      startTime: {
+        gte: startOfDay,
+        lte: endOfDay,
+      },
+    },
+  })
+
+  res.json({ success: true, removedSlots: result.count, blockedDate: date })
+})
+
+// 9. Sessions & Calendar View for Counsellor
+app.get('/api/counsellor/sessions', async (req, res) => {
+  const counsellorId = req.query.counsellorId as string
+  if (!counsellorId) return res.status(400).json({ error: 'counsellorId is required' })
+
+  const bookings = await prisma.booking.findMany({
+    where: { counsellorId },
+    include: { payment: true },
+    orderBy: { startTime: 'desc' },
+  })
+
+  const enriched = bookings.map((b) => ({
+    id: b.id,
+    visitorName: b.visitorName,
+    visitorEmail: b.visitorEmail,
+    visitorPhone: b.visitorPhone,
+    startTime: b.startTime,
+    status: b.status,
+    fee: b.payment ? Number(b.payment.amount) : 0,
+    hasNote: !!sessionNotesStore[b.id]?.note,
+    roomUrl: `/session?bookingId=${b.id}`,
+  }))
+
+  res.json(enriched)
+})
+
+// 10. Private Session Notes: GET & POST
+app.get('/api/counsellor/sessions/:bookingId/notes', async (req, res) => {
+  const { bookingId } = req.params
+  const record = sessionNotesStore[bookingId] || { note: '', updatedAt: '' }
+  res.json(record)
+})
+
+app.post('/api/counsellor/sessions/:bookingId/notes', async (req, res) => {
+  const { bookingId } = req.params
+  const { note } = req.body
+  if (typeof note !== 'string') return res.status(400).json({ error: 'note must be a string' })
+
+  const updatedAt = new Date().toISOString()
+  sessionNotesStore[bookingId] = { note, updatedAt }
+
+  res.json({ success: true, bookingId, note, updatedAt })
+})
+
+// 11. Profile Management (Biography, Photo, Specialisation, Languages, Fee -> Subject to Platform Admin Approval)
+app.put('/api/counsellor/profile', async (req, res) => {
+  const { counsellorId, bio, fee, specialisation, languages, photoUrl } = req.body
+  if (!counsellorId) return res.status(400).json({ error: 'counsellorId is required' })
+
+  const counsellor = await prisma.counsellor.findUnique({ where: { id: counsellorId } })
+  if (!counsellor) return res.status(404).json({ error: 'Counsellor not found' })
+
+  const pendingChanges = {
+    bio: bio !== undefined ? bio : counsellor.bio,
+    fee: fee !== undefined ? Number(fee) : Number(counsellor.fee),
+    specialisation: specialisation || counsellor.specialisation,
+    languages: languages || counsellor.languages,
+    photoUrl: photoUrl || '',
+    updatedAt: new Date().toISOString(),
+  }
+
+  pendingProfilesStore[counsellorId] = pendingChanges
+
+  res.json({
+    success: true,
+    message: 'Profile changes submitted for platform administrator approval.',
+    pendingApproval: true,
+    pendingChanges,
+  })
+})
+
+// 12. Earnings Summary API
+app.get('/api/counsellor/earnings', async (req, res) => {
+  const counsellorId = req.query.counsellorId as string
+  if (!counsellorId) return res.status(400).json({ error: 'counsellorId is required' })
+
+  const bookings = await prisma.booking.findMany({
+    where: { counsellorId },
+    include: { payment: true },
+  })
+
+  const now = new Date()
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+
+  let totalEarnings = 0
+  let mtdEarnings = 0
+  let completedCount = 0
+  let upcomingCount = 0
+
+  const breakdown: Array<{
+    id: string
+    visitorName: string
+    date: string
+    amount: number
+    status: string
+  }> = []
+
+  for (const b of bookings) {
+    if (b.status === 'CONFIRMED' || b.status === 'COMPLETED') {
+      const amount = b.payment ? Number(b.payment.amount) : 0
+      totalEarnings += amount
+      completedCount++
+
+      if (new Date(b.startTime) >= startOfMonth) {
+        mtdEarnings += amount
+      }
+
+      if (new Date(b.startTime) > now) {
+        upcomingCount++
+      }
+
+      breakdown.push({
+        id: b.id,
+        visitorName: b.visitorName,
+        date: new Date(b.startTime).toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        }),
+        amount,
+        status: b.status,
+      })
+    }
+  }
+
+  res.json({
+    totalEarnings,
+    mtdEarnings,
+    completedCount,
+    upcomingCount,
+    avgPerSession: completedCount > 0 ? Math.round(totalEarnings / completedCount) : 0,
+    breakdown,
+  })
+})
+
 const PORT = process.env.PORT || 4000
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
