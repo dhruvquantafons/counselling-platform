@@ -1,6 +1,6 @@
-# Whybeigh - Online Counselling Platform
+# Whybeigh — Online Counselling Platform
 
-A modern web-based counselling platform enabling visitors to browse counsellors, book sessions, pay online, select timezone-aware appointment slots, download PDF receipts, and join automated video consultations. Includes a comprehensive Counsellor Admin Portal for schedule, session, and profile management.
+A modern, production-ready web counselling platform enabling visitors to browse verified counsellors, book online sessions, pay securely via Razorpay, select timezone-aware appointment slots, view interactive receipts, download PDF receipts, and join video consultations. Features a full Counsellor Admin Portal with 2FA authentication, recurring schedule generator, block date tools, private clinical notes, search, pagination, and payment method analytics.
 
 ---
 
@@ -8,28 +8,30 @@ A modern web-based counselling platform enabling visitors to browse counsellors,
 
 ```
 /client   → Frontend (Next.js 16, React 19, Tailwind CSS, App Router)
-/server   → Backend (Node.js, Express, Prisma ORM, PostgreSQL, Razorpay SDK)
+/server   → Backend (Node.js, Express, Prisma ORM, Supabase / Postgres, Razorpay SDK)
 README.md
 ```
 
 ---
 
-## Tech Stack
+## Tech Stack & Architecture
 
 ### **Frontend**
 - **Framework**: Next.js 16 (App Router) + React 19
-- **Styling**: Tailwind CSS + Custom CSS Variables & Design System Tokens (`--color-paper`, `--color-sage`, `--color-ink`, `--color-amber`)
-- **Icons & Animation**: Custom SVG System, Glassmorphism, Micro-animations (`animate-fade-in`, `stagger-*`)
+- **Styling**: Vanilla CSS Variables + Tailwind CSS (`--color-paper`, `--color-sage`, `--color-ink`, `--color-amber`)
+- **UI Design System**: Clean typography without emojis, glassmorphic cards, responsive modals, smooth micro-animations (`animate-fade-in`, `animate-scale-up`).
+- **State & Search**: Instant client-side filtering, debounced search inputs, and page-based pagination controls.
 
-### **Backend / Database**
-- **Runtime & Server**: Node.js + Express.js
-- **ORM**: Prisma ORM (v7) + Prisma Postgres (`@prisma/adapter-pg` driver adapter)
-- **Database**: PostgreSQL
-- **Dev Tooling**: `tsx` (TypeScript execution), `dotenv-cli`, `cors`
+### **Backend & Database**
+- **Runtime & Framework**: Node.js + Express.js
+- **Database**: Cloud PostgreSQL on **Supabase / Prisma Postgres**
+- **ORM**: Prisma ORM (v7) with `@prisma/adapter-pg` driver adapter
+- **Dev Tooling**: `tsx` (TypeScript runner), `dotenv-cli`, `cors`
 
 ### **Payments & Receipts**
-- **Gateway**: Razorpay SDK (Order Creation, Webhook Signature Verification, Client Signature Verification)
-- **Receipts**: Custom HTML/PDF Receipt Engine (`REC-2026-XXXX`)
+- **Gateway**: Razorpay SDK (Order Creation, HMAC SHA256 Webhook Signature Verification, Client Signature Verification)
+- **Payment Method Tracking**: Accurately registers payment modes (`Card`, `UPI`, `Netbanking`, `Wallet`) passed dynamically during checkout verification.
+- **Receipt Engine**: Custom HTML/PDF Receipt Generator (`REC-2026-XXXX`)
 
 ---
 
@@ -37,7 +39,7 @@ README.md
 
 ### 1. Clone the repository
 ```bash
-git clone <repo-url>
+git clone https://github.com/dhruvquantafons/counselling-platform.git
 cd counselling-platform
 ```
 
@@ -57,58 +59,65 @@ npm install
 
 ### 3. Set up environment variables
 
-Copy `.env.example` to `.env` in `/server` and fill in the values:
+Copy `.env.example` to `.env` in `/server` and specify your database connection & Razorpay credentials:
 ```env
-DATABASE_URL="postgres://..."
+DATABASE_URL="postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres"
 RAZORPAY_KEY_ID="rzp_test_..."
 RAZORPAY_KEY_SECRET="..."
 RAZORPAY_WEBHOOK_SECRET="..."
 PORT=4000
 ```
 
-### 4. Seed the database
+### 4. Database Setup & Migrations
 ```bash
 cd server
-# Seed Counsellor records
+
+# Run Prisma schema migrations
+npx dotenv-cli -e .env -- npx prisma migrate dev
+
+# Seed Counsellor profiles
 npx dotenv-cli -e .env -- npx tsx prisma/seed.ts
 
-# Seed 7 days of availability slots (stored as UTC)
+# Seed 7 days of timezone-aware availability slots
 npx dotenv-cli -e .env -- npx tsx prisma/seed-availability.ts
 ```
 
-### 5. Run the backend
+### 5. Run the application
+
+**Start Backend API Server:**
 ```bash
 cd server
 npx tsx index.ts
 ```
-Runs on `http://localhost:4000`
+*Backend runs on `http://localhost:4000`*
 
-### 6. Run the frontend
+**Start Frontend Web App:**
 ```bash
 cd client
 npm run dev
 ```
-Visit `http://localhost:3000`
+*Frontend runs on `http://localhost:3000`*
 
 ---
 
 ## Application Features & Key Routes
 
 ### **Visitor Portal**
-- **Home Page (`/`)**: Overview of counselling services, process steps, and counsellor highlights.
-- **Directory (`/directory` & `/directory/[id]`)**: Filterable directory and detailed profile view with bios, fees, and languages.
-- **Checkout (`/checkout`)**: Step 1 & 2 details form with integrated Razorpay modal checkout, success/failed/abandoned payment banners.
-- **Slot Picker (`/booking`)**: Timezone-aware slot selector grouped by date and time band (Morning, Afternoon, Evening) with atomic slot locking.
-- **Booking Manager (`/booking/manage`)**: Visitor self-service portal for viewing receipts, downloading PDF receipts, rescheduling, and cancelling sessions within policy limits (24-hour advance notice window).
-- **Session Room (`/session`)**: Video call room interface for consultations.
+- **Home Page (`/`)**: Brand landing page highlighting Whybeigh counselling services, workflow, and counsellor directory.
+- **Directory (`/directory` & `/directory/[id]`)**: Filterable counsellor list and profile pages displaying specialisations, fees, and languages.
+- **Checkout (`/checkout`)**: Visitor details form with integrated Razorpay modal checkout and automated status banner states.
+- **Slot Picker (`/booking`)**: Timezone-aware slot selector grouped by day and time band (Morning, Afternoon, Evening) with 10-minute hold logic.
+- **Booking Manager (`/booking/manage`)**: Visitor self-service portal to view booking details, download PDF receipts, reschedule, or cancel sessions (enforces 24-hour advance policy).
+- **Session Room (`/session`)**: Integrated video consultation room interface.
 
 ### **Counsellor Admin Panel (`/counsellor/dashboard`)**
-- **Secure 2FA Login (`/counsellor/login`)**: Email & Password authentication + 6-digit TOTP verification step.
-- **Overview & Earnings**: Analytics cards for total revenue, MTD income, session stats, and payment breakdown table.
-- **Availability Management**: Add single slots, apply recurring weekly schedule patterns (Mon–Fri), block dates for leave, and withdraw unbooked slots.
-- **Sessions & Calendar View**: Filter upcoming/past sessions with direct "Access Video Room" links.
-- **Private Session Notes**: Encrypted, confidential clinical note drawer per booking.
-- **Profile Management**: Update biography, fee, specialisations, languages, and photo with a "Pending Platform Administrator Approval" state.
+- **Secure 2FA Login (`/counsellor/login`)**: Email & Password login + 6-digit TOTP verification code (`123456`).
+- **Overview & Earnings**: Metrics summary (Total Revenue, MTD Income, Completed/Upcoming stats) + **Earnings & Payment Breakdown Table** with search, pagination (5 items/page), and **Mode of Payment** tracking (`Card`, `UPI`, `Netbanking`, `Wallet`).
+- **Transaction & Receipt Modal**: Clickable breakdown rows opening an interactive modal displaying transaction reference IDs, client contact details, payment mode, and a direct button to **View / Download PDF Receipt**.
+- **Availability & Schedule**: Publish single slots, generate recurring weekly pattern schedules (Mon–Fri), block dates for leave, and withdraw unbooked slots. Features search & 9-item pagination.
+- **Sessions & Calendar**: Filter upcoming and past sessions with direct video call access links. Features search & 6-item pagination.
+- **Private Session Notes**: Encrypted, confidential clinical session note editor per booking.
+- **Profile Management**: Update biography, session fee, specialisations, languages, and photo URL with a "Pending Platform Administrator Approval" workflow.
 
 ---
 
@@ -118,17 +127,17 @@ Visit `http://localhost:3000`
 |---|---|---|
 | `GET` | `/api/counsellors` | List all approved counsellors |
 | `GET` | `/api/counsellors/:id` | Get single counsellor profile |
-| `GET` | `/api/counsellors/:id/availability?tz=...` | Timezone-aware unbooked availability slots (enforces 2-hour minimum notice & 15-min buffer) |
+| `GET` | `/api/counsellors/:id/availability?tz=...` | Timezone-aware unbooked availability slots (2-hour minimum notice & 15-min buffer) |
 | `POST` | `/api/payments/create-order` | Create Razorpay order & PENDING booking |
-| `POST` | `/api/payments/verify` | Verify client payment HMAC signature & confirm booking |
+| `POST` | `/api/payments/verify` | Verify client payment HMAC signature, record payment method (`Card`, `UPI`, etc.), and confirm booking |
 | `POST` | `/api/payments/webhook` | Webhook verification for `payment.captured` |
-| `POST` | `/api/payments/mark-failed` | Mark failed payment and update booking status to CANCELLED |
-| `POST` | `/api/availability/hold` | Place 10-minute temporary hold on a slot during checkout |
+| `POST` | `/api/payments/mark-failed` | Mark payment as failed & set booking to CANCELLED |
+| `POST` | `/api/availability/hold` | Place temporary 10-minute hold on a slot during checkout |
 | `POST` | `/api/availability/release-hold` | Release temporary slot hold |
-| `PATCH` | `/api/bookings/:id/slot` | Lock chosen availability slot and confirm booking |
-| `GET` | `/api/bookings/:id/receipt` | Downloadable / viewable PDF receipt (`REC-2026-XXXX`) |
-| `POST` | `/api/bookings/:id/cancel` | Visitor self-service cancellation (respecting 24h policy) |
-| `POST` | `/api/bookings/:id/reschedule` | Visitor self-service rescheduling (respecting 24h policy) |
+| `PATCH` | `/api/bookings/:id/slot` | Lock chosen slot and confirm booking |
+| `GET` | `/api/bookings/:id/receipt` | Generate & download PDF receipt (`REC-2026-XXXX`) |
+| `POST` | `/api/bookings/:id/cancel` | Visitor self-service session cancellation (24h policy) |
+| `POST` | `/api/bookings/:id/reschedule` | Visitor self-service session rescheduling (24h policy) |
 | `POST` | `/api/counsellor/auth/login` | Counsellor 2FA step 1 login |
 | `POST` | `/api/counsellor/auth/verify-2fa` | Counsellor 2FA step 2 verification |
 | `GET` | `/api/counsellor/availability` | Counsellor slot management list |
@@ -137,27 +146,20 @@ Visit `http://localhost:3000`
 | `GET` | `/api/counsellor/sessions` | Counsellor session calendar with video room links |
 | `GET`/`POST` | `/api/counsellor/sessions/:id/notes` | Private clinical session notes |
 | `PUT` | `/api/counsellor/profile` | Update profile (triggers admin approval state) |
-| `GET` | `/api/counsellor/earnings` | Financial summary & transaction breakdown |
+| `GET` | `/api/counsellor/earnings` | Financial summary & breakdown with payment method analytics |
 
 ---
 
 ## Progress & Feature Log
 
-| Task | Module | Status |
+| Module / Requirement | Description | Status |
 |---|---|---|
-| **T-001** | Repository & Environment Config | ✅ Completed |
-| **T-002** | Data Models (Counsellor, Availability, Booking, Payment) | ✅ Completed |
-| **T-003** | Counsellor Database Seeding | ✅ Completed |
-| **T-004** | Booking Steps Layout & Navigation | ✅ Completed |
-| **T-005** | Directory & Profile Pages | ✅ Completed |
-| **T-006** | Visitor Details Form & Validation | ✅ Completed |
-| **T-007** | Razorpay Order Creation & Webhook Signature Verification | ✅ Completed |
-| **T-008** | Gateway Checkout (Success, Failure, Abandonment Handling) | ✅ Completed |
-| **T-009** | Availability API with Timezone Conversion (`Intl`) | ✅ Completed |
-| **T-010** | Slot Picker (Day/Period Grouping & Booking Confirmation) | ✅ Completed |
-| **3.6** | Counsellor Admin Panel (2FA, Schedule, Notes, Profile, Earnings) | ✅ Completed |
-| **Engine** | PDF Receipt Generator & Download (`/receipt`) | ✅ Completed |
-| **Engine** | 10-Minute Temporary Slot Hold & Release Engine | ✅ Completed |
-| **Engine** | Minimum Notice Period (2 hours) & 15-Min Session Buffer | ✅ Completed |
-| **Engine** | Visitor Self-Service Booking Manager (24h Policy Reschedule/Cancel) | ✅ Completed |
-| **Engine** | Dual Client-Server Payment Signature Verification (`/payments/verify`) | ✅ Completed |
+| **Database Migration** | Supabase PostgreSQL migration & Prisma schema alignment | ✅ Completed |
+| **Search Engine** | Real-time search in Overview, Availability, and Sessions tabs | ✅ Completed |
+| **Pagination Controls** | Multi-page pagination controls with item counters across dashboard tabs | ✅ Completed |
+| **Payment Mode Tracking** | Dynamic capture and display of `Card`, `UPI`, `Netbanking`, and `Wallet` modes | ✅ Completed |
+| **Transaction Modal** | Interactive breakdown modal with client details & PDF receipt trigger | ✅ Completed |
+| **Razorpay Verification** | Dual client-server signature verification (`/payments/verify`) | ✅ Completed |
+| **Visitor Portal** | Self-service booking management portal (24h policy reschedule & cancel) | ✅ Completed |
+| **PDF Receipt Engine** | Printable HTML/PDF receipt generator (`REC-2026-XXXX`) | ✅ Completed |
+| **Design System** | Clean, emoji-free typography with custom CSS variables & tokens | ✅ Completed |
