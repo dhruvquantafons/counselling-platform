@@ -9,12 +9,18 @@ type Counsellor = {
 };
 
 async function getCounsellors(): Promise<Counsellor[]> {
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-  const res = await fetch(`${apiBase}/api/counsellors`, {
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error("Failed to load counsellors");
-  return res.json();
+  try {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+    const res = await fetch(`${apiBase}/api/counsellors`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return [];
+    const contentType = res.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
 }
 
 export default async function Directory() {

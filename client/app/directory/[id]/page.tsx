@@ -1,12 +1,18 @@
 import Link from "next/link";
 
 async function getCounsellor(id: string) {
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-  const res = await fetch(`${apiBase}/api/counsellors/${id}`, {
-    cache: "no-store",
-  });
-  if (!res.ok) return null;
-  return res.json();
+  try {
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+    const res = await fetch(`${apiBase}/api/counsellors/${id}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
 type Counsellor = {
