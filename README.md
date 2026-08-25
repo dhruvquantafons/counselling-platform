@@ -120,12 +120,14 @@ The application is configured for deployment on [Render](https://render.com) as 
   - `RAZORPAY_WEBHOOK_SECRET`: Razorpay Webhook Secret
   - `PORT`: `10000`
 
-### 2. Frontend Service (`counselling-platform-frontend`(https://counselling-platform-frontend.onrender.com))
+### 2. Frontend Service (`counselling-platform-frontend`)
 - **Root Directory**: `client`
 - **Build Command**: `npm install && npm run build`
 - **Start Command**: `npm run start`
 - **Environment Variables**:
   - `NEXT_PUBLIC_API_URL`: Your live backend service URL (e.g. `https://counselling-platform.onrender.com` — *no trailing slash*)
+  - **Website**: `https://counselling-platform-frontend.onrender.com/`
+  - **Counsellor's Admin Panel**: `https://counselling-platform-frontend.onrender.com/counsellor/login`
 
 > [!IMPORTANT]
 > Next.js inlines `NEXT_PUBLIC_*` environment variables at **build time**. When setting `NEXT_PUBLIC_API_URL` on Render, click **Manual Deploy → Clear build cache & deploy** to bake in the live API URL.
