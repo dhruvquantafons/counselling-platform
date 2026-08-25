@@ -55,11 +55,83 @@ type EarningsData = {
   breakdown: Array<{
     id: string;
     visitorName: string;
+    visitorEmail?: string;
+    visitorPhone?: string;
     date: string;
+    time?: string;
     amount: number;
     status: string;
+    paymentMode?: string;
+    paymentId?: string;
+    startTime?: string;
+    createdAt?: string;
+    receiptUrl?: string;
   }>;
 };
+
+/* ─── Reusable Pagination Control ────────────────────────────────────────── */
+function PaginationControl({
+  currentPage,
+  totalPages,
+  totalItems,
+  pageSize,
+  onPageChange,
+}: {
+  currentPage: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (totalItems === 0) return null;
+
+  const startItem = (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(currentPage * pageSize, totalItems);
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-5 mt-4 border-t border-sage/10 text-xs text-ink/60">
+      <div>
+        Showing <span className="font-semibold text-ink">{startItem}</span>–
+        <span className="font-semibold text-ink">{endItem}</span> of{" "}
+        <span className="font-semibold text-ink">{totalItems}</span> results
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center gap-1.5 font-mono">
+          <button
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage === 1}
+            className="px-3 py-1.5 rounded-lg border border-sage/20 bg-white text-ink hover:bg-sage-light/40 disabled:opacity-40 disabled:hover:bg-white transition-colors"
+          >
+            ← Previous
+          </button>
+
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+            <button
+              key={p}
+              onClick={() => onPageChange(p)}
+              className={`w-8 h-8 rounded-lg border transition-colors ${
+                currentPage === p
+                  ? "bg-sage text-white border-sage font-bold"
+                  : "bg-white text-ink/70 border-sage/20 hover:bg-sage-light/40"
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+
+          <button
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage === totalPages}
+            className="px-3 py-1.5 rounded-lg border border-sage/20 bg-white text-ink hover:bg-sage-light/40 disabled:opacity-40 disabled:hover:bg-white transition-colors"
+          >
+            Next →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function CounsellorDashboard() {
   const router = useRouter();
@@ -67,6 +139,9 @@ export default function CounsellorDashboard() {
   const [activeTab, setActiveTab] = useState<"overview" | "availability" | "sessions" | "notes" | "profile">("overview");
   const [loading, setLoading] = useState(true);
   const [actionMessage, setActionMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+
+  // Earnings & Receipt Modal state
+  const [selectedRecord, setSelectedRecord] = useState<EarningsData["breakdown"][number] | null>(null);
 
   // Availability state
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
@@ -77,7 +152,7 @@ export default function CounsellorDashboard() {
   // Recurring availability state
   const [recStart, setRecStart] = useState("");
   const [recEnd, setRecEnd] = useState("");
-  const [recDays, setRecDays] = useState<number[]>([1, 2, 3, 4, 5]); // Mon-Fri default
+  const [recDays, setRecDays] = useState<number[]>([1, 2, 3, 4, 5]);
 
   // Block date state
   const [blockDate, setBlockDate] = useState("");
@@ -102,6 +177,22 @@ export default function CounsellorDashboard() {
   // Earnings state
   const [earnings, setEarnings] = useState<EarningsData | null>(null);
 
+  // ── Search & Pagination States ───────────────────────────────────────────
+  // 1. Overview & Earnings
+  const [earningsSearch, setEarningsSearch] = useState("");
+  const [earningsPage, setEarningsPage] = useState(1);
+  const EARNINGS_PER_PAGE = 5;
+
+  // 2. Availability & Schedule
+  const [availabilitySearch, setAvailabilitySearch] = useState("");
+  const [availabilityPage, setAvailabilityPage] = useState(1);
+  const AVAILABILITY_PER_PAGE = 9;
+
+  // 3. Sessions & Calendar
+  const [sessionSearch, setSessionSearch] = useState("");
+  const [sessionPage, setSessionPage] = useState(1);
+  const SESSIONS_PER_PAGE = 6;
+
   // ── Authentication Check ─────────────────────────────────────────────────
   useEffect(() => {
     const token = localStorage.getItem("counsellorToken");
@@ -110,7 +201,6 @@ export default function CounsellorDashboard() {
       return;
     }
 
-    // Load initial profile data
     fetch(`${API_BASE}/api/counsellor/me?counsellorId=${token}`)
       .then((res) => {
         if (!res.ok) throw new Error("Failed to authenticate session");
@@ -348,11 +438,83 @@ export default function CounsellorDashboard() {
     );
   }
 
-  const filteredSessions = sessions.filter((s) => {
-    if (sessionFilter === "upcoming") return new Date(s.startTime) >= new Date();
-    if (sessionFilter === "past") return new Date(s.startTime) < new Date();
-    return true;
+  // ── Filtered & Paginated Datasets ─────────────────────────────────────────
+
+  // 1. Earnings Breakdown Filter & Pagination
+  const rawBreakdown = earnings?.breakdown || [];
+  const filteredBreakdown = rawBreakdown.filter((item) => {
+    const q = earningsSearch.toLowerCase();
+    return (
+      item.visitorName.toLowerCase().includes(q) ||
+      item.date.toLowerCase().includes(q) ||
+      item.status.toLowerCase().includes(q)
+    );
   });
+  const earningsTotalPages = Math.ceil(filteredBreakdown.length / EARNINGS_PER_PAGE) || 1;
+  const paginatedBreakdown = filteredBreakdown.slice(
+    (earningsPage - 1) * EARNINGS_PER_PAGE,
+    earningsPage * EARNINGS_PER_PAGE
+  );
+
+  // 2. Availability Slots Filter & Pagination
+  const filteredSlots = slots.filter((slot) => {
+    const dt = new Date(slot.startTime);
+    const dateStr = dt.toLocaleDateString("en-IN", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+    const timeStr = dt.toLocaleTimeString("en-IN", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    const statusStr = slot.isBooked ? "booked" : "open";
+    const q = availabilitySearch.toLowerCase();
+
+    return (
+      dateStr.toLowerCase().includes(q) ||
+      timeStr.toLowerCase().includes(q) ||
+      statusStr.includes(q)
+    );
+  });
+  const availabilityTotalPages = Math.ceil(filteredSlots.length / AVAILABILITY_PER_PAGE) || 1;
+  const paginatedSlots = filteredSlots.slice(
+    (availabilityPage - 1) * AVAILABILITY_PER_PAGE,
+    availabilityPage * AVAILABILITY_PER_PAGE
+  );
+
+  // 3. Sessions Filter & Pagination
+  const filteredSessions = sessions.filter((s) => {
+    const matchesTabFilter =
+      sessionFilter === "all"
+        ? true
+        : sessionFilter === "upcoming"
+        ? new Date(s.startTime) >= new Date()
+        : new Date(s.startTime) < new Date();
+
+    const dt = new Date(s.startTime);
+    const dateStr = dt.toLocaleDateString("en-IN", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    const q = sessionSearch.toLowerCase();
+    const matchesSearch =
+      s.visitorName.toLowerCase().includes(q) ||
+      s.visitorEmail.toLowerCase().includes(q) ||
+      s.visitorPhone.toLowerCase().includes(q) ||
+      s.status.toLowerCase().includes(q) ||
+      dateStr.toLowerCase().includes(q);
+
+    return matchesTabFilter && matchesSearch;
+  });
+  const sessionsTotalPages = Math.ceil(filteredSessions.length / SESSIONS_PER_PAGE) || 1;
+  const paginatedSessions = filteredSessions.slice(
+    (sessionPage - 1) * SESSIONS_PER_PAGE,
+    sessionPage * SESSIONS_PER_PAGE
+  );
 
   return (
     <main className="max-w-6xl mx-auto px-6 py-10 animate-fade-in">
@@ -455,31 +617,115 @@ export default function CounsellorDashboard() {
             </div>
           </div>
 
-          {/* Earnings Breakdown Table */}
-          <div className="bg-white rounded-2xl border border-sage/15 p-6 shadow-soft">
-            <h2 className="font-display text-xl text-ink mb-2">Earnings & Payment Breakdown</h2>
-            <p className="text-xs text-ink/50 mb-6">List of confirmed client session fees collected</p>
+          {/* Earnings Breakdown Table with Search & Pagination */}
+          <div className="bg-white rounded-2xl border border-sage/15 p-6 shadow-soft space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-sage/10">
+              <div>
+                <h2 className="font-display text-xl text-ink">Earnings & Payment Breakdown</h2>
+                <p className="text-xs text-ink/50">List of confirmed client session fees collected</p>
+              </div>
 
-            {earnings && earnings.breakdown.length > 0 ? (
+              {/* Search Bar */}
+              <div className="relative w-full sm:w-64">
+                <input
+                  type="text"
+                  value={earningsSearch}
+                  onChange={(e) => {
+                    setEarningsSearch(e.target.value);
+                    setEarningsPage(1);
+                  }}
+                  placeholder="Search client, date, status..."
+                  className="w-full border border-sage/20 rounded-full pl-9 pr-8 py-2 text-xs bg-paper/40 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage"
+                />
+                <svg className="w-3.5 h-3.5 absolute left-3 top-2.5 text-ink/40" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607z" />
+                </svg>
+                {earningsSearch && (
+                  <button
+                    onClick={() => {
+                      setEarningsSearch("");
+                      setEarningsPage(1);
+                    }}
+                    className="absolute right-3 top-2 text-xs text-ink/40 hover:text-ink"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {paginatedBreakdown.length > 0 ? (
               <div className="divide-y divide-sage/10">
-                {earnings.breakdown.map((item) => (
-                  <div key={item.id} className="py-3.5 flex items-center justify-between text-sm">
-                    <div>
-                      <p className="font-medium text-ink">{item.visitorName}</p>
-                      <p className="text-xs text-ink/50">{item.date}</p>
+                {paginatedBreakdown.map((item) => {
+                  const mode = item.paymentMode || "Card";
+                  const modeColor =
+                    mode === "Card"
+                      ? "bg-blue-50 text-blue-700 border-blue-200"
+                      : mode === "UPI"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : mode === "Wallet"
+                      ? "bg-amber-50 text-amber-800 border-amber-200"
+                      : "bg-purple-50 text-purple-700 border-purple-200";
+
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => setSelectedRecord(item)}
+                      className="py-3.5 px-3 rounded-xl flex items-center justify-between text-sm hover:bg-sage-light/30 cursor-pointer transition-all group"
+                      title="Click to view full receipt & transaction details"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-sage-light/70 flex items-center justify-center text-xs font-bold text-sage-dark shrink-0">
+                          {item.visitorName
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")
+                            .slice(0, 2)}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-ink group-hover:text-sage-dark transition-colors">
+                              {item.visitorName}
+                            </p>
+                            <span className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded border ${modeColor}`}>
+                              {mode === "UPI" ? "UPI" : mode === "Card" ? "Card" : mode === "Wallet" ? "Wallet" : "Netbanking"}
+                            </span>
+                          </div>
+                          <p className="text-xs text-ink/50 mt-0.5">
+                            {item.date} {item.time ? `· ${item.time}` : ""}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="text-right flex items-center gap-3">
+                        <div>
+                          <p className="font-mono font-semibold text-sage-dark">₹{item.amount}</p>
+                          <span className="text-[10px] uppercase font-mono px-2 py-0.5 bg-sage-light text-sage-dark rounded">
+                            {item.status}
+                          </span>
+                        </div>
+                        <span className="text-xs text-sage opacity-0 group-hover:opacity-100 transition-opacity">
+                          View Receipt →
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-mono font-medium text-sage-dark">₹{item.amount}</p>
-                      <span className="text-[10px] uppercase font-mono px-2 py-0.5 bg-sage-light text-sage-dark rounded">
-                        {item.status}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
-              <p className="text-xs text-ink/40 py-6 text-center">No completed session payments recorded yet.</p>
+              <p className="text-xs text-ink/40 py-8 text-center">
+                {earningsSearch ? `No earnings found matching "${earningsSearch}".` : "No completed session payments recorded yet."}
+              </p>
             )}
+
+            {/* Pagination Controls */}
+            <PaginationControl
+              currentPage={earningsPage}
+              totalPages={earningsTotalPages}
+              totalItems={filteredBreakdown.length}
+              pageSize={EARNINGS_PER_PAGE}
+              onPageChange={(page) => setEarningsPage(page)}
+            />
           </div>
         </div>
       )}
@@ -628,64 +874,111 @@ export default function CounsellorDashboard() {
                   type="submit"
                   className="w-full border border-amber/30 text-amber hover:bg-amber-light/30 rounded-full py-2.5 text-xs font-mono font-medium transition-colors"
                 >
-                  🚫 Block & Clear Slots
+                  Block & Clear Slots
                 </button>
               </form>
             </div>
           </div>
 
-          {/* Current Published Slots List */}
-          <div className="bg-white rounded-2xl border border-sage/15 p-6 shadow-soft">
-            <h2 className="font-display text-xl text-ink mb-1">Published Availability Hours</h2>
-            <p className="text-xs text-ink/50 mb-6">Withdraw or view your open and booked slots</p>
+          {/* Current Published Slots List with Search & Pagination */}
+          <div className="bg-white rounded-2xl border border-sage/15 p-6 shadow-soft space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-sage/10">
+              <div>
+                <h2 className="font-display text-xl text-ink">Published Availability Hours</h2>
+                <p className="text-xs text-ink/50">Withdraw or view your open and booked slots</p>
+              </div>
 
-            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {slots.map((slot) => {
-                const dateStr = new Date(slot.startTime).toLocaleDateString("en-IN", {
-                  weekday: "short",
-                  day: "numeric",
-                  month: "short",
-                });
-                const timeStr = new Date(slot.startTime).toLocaleTimeString("en-IN", {
-                  hour: "numeric",
-                  minute: "2-digit",
-                  hour12: true,
-                });
-
-                return (
-                  <div
-                    key={slot.id}
-                    className={`p-4 rounded-xl border flex items-center justify-between transition-all ${
-                      slot.isBooked
-                        ? "bg-sage-light/40 border-sage/20 text-ink/60"
-                        : "bg-paper/40 border-sage/15 text-ink hover:border-sage/40"
-                    }`}
+              {/* Availability Search Bar */}
+              <div className="relative w-full sm:w-64">
+                <input
+                  type="text"
+                  value={availabilitySearch}
+                  onChange={(e) => {
+                    setAvailabilitySearch(e.target.value);
+                    setAvailabilityPage(1);
+                  }}
+                  placeholder="Search date, time, or status..."
+                  className="w-full border border-sage/20 rounded-full pl-9 pr-8 py-2 text-xs bg-paper/40 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage"
+                />
+                <svg className="w-3.5 h-3.5 absolute left-3 top-2.5 text-ink/40" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607z" />
+                </svg>
+                {availabilitySearch && (
+                  <button
+                    onClick={() => {
+                      setAvailabilitySearch("");
+                      setAvailabilityPage(1);
+                    }}
+                    className="absolute right-3 top-2 text-xs text-ink/40 hover:text-ink"
                   >
-                    <div>
-                      <p className="font-mono text-xs font-semibold">{dateStr}</p>
-                      <p className="text-xs text-ink/70">{timeStr}</p>
-                      <span
-                        className={`inline-block text-[10px] font-mono px-2 py-0.5 rounded mt-1.5 ${
-                          slot.isBooked ? "bg-sage text-white" : "bg-sage-light text-sage-dark"
-                        }`}
-                      >
-                        {slot.isBooked ? "Booked" : "Open"}
-                      </span>
-                    </div>
-
-                    {!slot.isBooked && (
-                      <button
-                        onClick={() => handleWithdrawSlot(slot.id)}
-                        className="text-xs text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Withdraw slot"
-                      >
-                        Withdraw
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                    ✕
+                  </button>
+                )}
+              </div>
             </div>
+
+            {paginatedSlots.length > 0 ? (
+              <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3 pt-2">
+                {paginatedSlots.map((slot) => {
+                  const dateStr = new Date(slot.startTime).toLocaleDateString("en-IN", {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                  });
+                  const timeStr = new Date(slot.startTime).toLocaleTimeString("en-IN", {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    hour12: true,
+                  });
+
+                  return (
+                    <div
+                      key={slot.id}
+                      className={`p-4 rounded-xl border flex items-center justify-between transition-all ${
+                        slot.isBooked
+                          ? "bg-sage-light/40 border-sage/20 text-ink/60"
+                          : "bg-paper/40 border-sage/15 text-ink hover:border-sage/40"
+                      }`}
+                    >
+                      <div>
+                        <p className="font-mono text-xs font-semibold">{dateStr}</p>
+                        <p className="text-xs text-ink/70">{timeStr}</p>
+                        <span
+                          className={`inline-block text-[10px] font-mono px-2 py-0.5 rounded mt-1.5 ${
+                            slot.isBooked ? "bg-sage text-white" : "bg-sage-light text-sage-dark"
+                          }`}
+                        >
+                          {slot.isBooked ? "Booked" : "Open"}
+                        </span>
+                      </div>
+
+                      {!slot.isBooked && (
+                        <button
+                          onClick={() => handleWithdrawSlot(slot.id)}
+                          className="text-xs text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Withdraw slot"
+                        >
+                          Withdraw
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-ink/40 py-8 text-center">
+                {availabilitySearch ? `No availability slots found matching "${availabilitySearch}".` : "No availability slots published yet."}
+              </p>
+            )}
+
+            {/* Availability Pagination Controls */}
+            <PaginationControl
+              currentPage={availabilityPage}
+              totalPages={availabilityTotalPages}
+              totalItems={filteredSlots.length}
+              pageSize={AVAILABILITY_PER_PAGE}
+              onPageChange={(page) => setAvailabilityPage(page)}
+            />
           </div>
         </div>
       )}
@@ -693,86 +986,138 @@ export default function CounsellorDashboard() {
       {/* ── Tab 3: Sessions & Calendar View ───────────────────────────────── */}
       {activeTab === "sessions" && (
         <div className="space-y-6 animate-fade-in">
-          <div className="flex items-center justify-between border-b border-sage/10 pb-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-sage/10 pb-4">
             <h2 className="font-display text-xl text-ink">Session Calendar & Bookings</h2>
-            <div className="flex gap-2 text-xs font-mono">
-              {(["all", "upcoming", "past"] as const).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setSessionFilter(f)}
-                  className={`px-3 py-1.5 rounded-lg uppercase ${
-                    sessionFilter === f ? "bg-sage text-white" : "bg-white border text-ink/60"
-                  }`}
-                >
-                  {f}
-                </button>
-              ))}
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              {/* Session Search Bar */}
+              <div className="relative w-full sm:w-64">
+                <input
+                  type="text"
+                  value={sessionSearch}
+                  onChange={(e) => {
+                    setSessionSearch(e.target.value);
+                    setSessionPage(1);
+                  }}
+                  placeholder="Search client, email, phone, date..."
+                  className="w-full border border-sage/20 rounded-full pl-9 pr-8 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage"
+                />
+                <svg className="w-3.5 h-3.5 absolute left-3 top-2.5 text-ink/40" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607z" />
+                </svg>
+                {sessionSearch && (
+                  <button
+                    onClick={() => {
+                      setSessionSearch("");
+                      setSessionPage(1);
+                    }}
+                    className="absolute right-3 top-2 text-xs text-ink/40 hover:text-ink"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* Status Filter Buttons */}
+              <div className="flex gap-1.5 text-xs font-mono shrink-0">
+                {(["all", "upcoming", "past"] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => {
+                      setSessionFilter(f);
+                      setSessionPage(1);
+                    }}
+                    className={`px-3 py-1.5 rounded-lg uppercase ${
+                      sessionFilter === f ? "bg-sage text-white font-medium" : "bg-white border border-sage/20 text-ink/60 hover:bg-sage-light/30"
+                    }`}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
-            {filteredSessions.map((s) => {
-              const dt = new Date(s.startTime);
-              const formattedDate = dt.toLocaleDateString("en-IN", {
-                weekday: "short",
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-              });
-              const formattedTime = dt.toLocaleTimeString("en-IN", {
-                hour: "numeric",
-                minute: "2-digit",
-                hour12: true,
-              });
+          {paginatedSessions.length > 0 ? (
+            <div className="grid md:grid-cols-2 gap-4">
+              {paginatedSessions.map((s) => {
+                const dt = new Date(s.startTime);
+                const formattedDate = dt.toLocaleDateString("en-IN", {
+                  weekday: "short",
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                });
+                const formattedTime = dt.toLocaleTimeString("en-IN", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  hour12: true,
+                });
 
-              return (
-                <div
-                  key={s.id}
-                  className="bg-white rounded-2xl border border-sage/15 p-5 shadow-soft space-y-4 flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <p className="font-display text-lg text-ink">{s.visitorName}</p>
-                        <p className="text-xs text-ink/60">{s.visitorEmail} · {s.visitorPhone}</p>
+                return (
+                  <div
+                    key={s.id}
+                    className="bg-white rounded-2xl border border-sage/15 p-5 shadow-soft space-y-4 flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <p className="font-display text-lg text-ink">{s.visitorName}</p>
+                          <p className="text-xs text-ink/60">{s.visitorEmail} · {s.visitorPhone}</p>
+                        </div>
+                        <span className="font-mono text-xs px-2.5 py-1 bg-sage-light text-sage-dark font-medium rounded-full">
+                          {s.status}
+                        </span>
                       </div>
-                      <span className="font-mono text-xs px-2.5 py-1 bg-sage-light text-sage-dark font-medium rounded-full">
-                        {s.status}
-                      </span>
+
+                      <div className="bg-paper/60 rounded-xl p-3 text-xs space-y-1 font-mono text-ink/70">
+                        <p>Date: {formattedDate}</p>
+                        <p>Time: {formattedTime}</p>
+                        <p>Fee: ₹{s.fee}</p>
+                      </div>
                     </div>
 
-                    <div className="bg-paper/60 rounded-xl p-3 text-xs space-y-1 font-mono text-ink/70">
-                      <p>📅 Date: {formattedDate}</p>
-                      <p>⏰ Time: {formattedTime}</p>
-                      <p>💰 Fee: ₹{s.fee}</p>
+                    <div className="flex gap-2 pt-2">
+                      <Link
+                        href={s.roomUrl}
+                        className="flex-1 bg-sage text-white text-center py-2.5 rounded-full text-xs font-medium hover:bg-sage-dark transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+                        </svg>
+                        Access Video Room
+                      </Link>
+
+                      <button
+                        onClick={() => {
+                          setActiveTab("notes");
+                          handleSelectSessionForNotes(s.id);
+                        }}
+                        className="px-4 border border-sage/20 text-ink/70 hover:text-ink text-xs rounded-full hover:bg-sage-light/50 transition-colors"
+                      >
+                        {s.hasNote ? "Edit Note" : "+ Note"}
+                      </button>
                     </div>
                   </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-sage/15 p-12 text-center text-xs text-ink/40">
+              {sessionSearch
+                ? `No sessions found matching "${sessionSearch}".`
+                : `No ${sessionFilter} sessions found.`}
+            </div>
+          )}
 
-                  <div className="flex gap-2 pt-2">
-                    <Link
-                      href={s.roomUrl}
-                      className="flex-1 bg-sage text-white text-center py-2.5 rounded-full text-xs font-medium hover:bg-sage-dark transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
-                      </svg>
-                      Access Video Room
-                    </Link>
-
-                    <button
-                      onClick={() => {
-                        setActiveTab("notes");
-                        handleSelectSessionForNotes(s.id);
-                      }}
-                      className="px-4 border border-sage/20 text-ink/70 hover:text-ink text-xs rounded-full hover:bg-sage-light/50 transition-colors"
-                    >
-                      {s.hasNote ? "Edit Note" : "+ Note"}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          {/* Sessions Pagination Controls */}
+          <PaginationControl
+            currentPage={sessionPage}
+            totalPages={sessionsTotalPages}
+            totalItems={filteredSessions.length}
+            pageSize={SESSIONS_PER_PAGE}
+            onPageChange={(page) => setSessionPage(page)}
+          />
         </div>
       )}
 
@@ -839,7 +1184,7 @@ export default function CounsellorDashboard() {
               </div>
             ) : (
               <div className="py-20 text-center text-xs text-ink/40">
-                👈 Select a session from the list on the left to start writing notes.
+                Select a session from the list on the left to start writing notes.
               </div>
             )}
           </div>
@@ -944,6 +1289,106 @@ export default function CounsellorDashboard() {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ── Transaction & Receipt Details Modal ────────────────────────────── */}
+      {selectedRecord && (
+        <div className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl border border-sage/20 p-6 md:p-8 max-w-lg w-full shadow-soft-lg space-y-6 animate-scale-up">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between border-b border-sage/10 pb-4">
+              <div>
+                <span className="text-[10px] font-mono uppercase text-sage font-semibold tracking-wider">
+                  Payment Receipt & Transaction Info
+                </span>
+                <h3 className="font-display text-xl text-ink mt-0.5">
+                  {selectedRecord.visitorName}
+                </h3>
+              </div>
+              <button
+                onClick={() => setSelectedRecord(null)}
+                className="w-8 h-8 rounded-full bg-sage-light/50 text-ink/60 hover:text-ink flex items-center justify-center text-sm font-bold transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Receipt Summary Grid */}
+            <div className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-4 bg-paper/60 p-4 rounded-2xl border border-sage/10">
+                <div>
+                  <p className="font-mono text-[10px] uppercase text-ink/40">Mode of Payment</p>
+                  <p className="font-bold text-sage-dark text-sm mt-0.5">
+                    {selectedRecord.paymentMode === "UPI"
+                      ? "UPI (Google Pay / PhonePe)"
+                      : selectedRecord.paymentMode === "Wallet"
+                      ? "Mobile Wallet"
+                      : selectedRecord.paymentMode === "Netbanking"
+                      ? "Netbanking"
+                      : "Credit / Debit Card"}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-mono text-[10px] uppercase text-ink/40">Amount Collected</p>
+                  <p className="font-mono font-bold text-ink text-sm mt-0.5">
+                    ₹{selectedRecord.amount}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2 font-mono bg-white p-4 rounded-2xl border border-sage/15 text-ink/80">
+                <div className="flex justify-between">
+                  <span className="text-ink/40">Receipt Number:</span>
+                  <span className="font-semibold text-sage-dark">REC-2026-{(selectedRecord.id).slice(0, 6).toUpperCase()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink/40">Transaction Status:</span>
+                  <span className="px-2 py-0.5 bg-sage-light text-sage-dark text-[10px] rounded font-bold uppercase">
+                    {selectedRecord.status}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink/40">Payment Ref ID:</span>
+                  <span className="text-ink truncate max-w-[180px]">{selectedRecord.paymentId || selectedRecord.id}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink/40">Session Date:</span>
+                  <span className="text-ink">{selectedRecord.date} {selectedRecord.time ? `(${selectedRecord.time})` : ""}</span>
+                </div>
+                {selectedRecord.visitorEmail && (
+                  <div className="flex justify-between">
+                    <span className="text-ink/40">Client Email:</span>
+                    <span className="text-ink truncate max-w-[180px]">{selectedRecord.visitorEmail}</span>
+                  </div>
+                )}
+                {selectedRecord.visitorPhone && (
+                  <div className="flex justify-between">
+                    <span className="text-ink/40">Client Phone:</span>
+                    <span className="text-ink">{selectedRecord.visitorPhone}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <a
+                href={`${API_BASE}${selectedRecord.receiptUrl || `/api/bookings/${selectedRecord.id}/receipt`}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 bg-sage text-white text-center py-3 rounded-full text-xs font-mono font-medium hover:bg-sage-dark transition-colors flex items-center justify-center gap-2"
+              >
+                View / Download PDF Receipt
+              </a>
+              <button
+                onClick={() => setSelectedRecord(null)}
+                className="px-5 py-3 border border-sage/20 text-ink/70 hover:text-ink text-xs font-mono rounded-full hover:bg-sage-light/40 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </main>

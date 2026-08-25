@@ -65,7 +65,7 @@ export function generateReceiptHtml(data: ReceiptData): string {
 <body>
   <div class="receipt-card">
     <div class="header">
-      <div class="logo">QuantaFONS Counselling</div>
+      <div class="logo">Whybeigh Counselling</div>
       <div class="title">Official Payment Receipt</div>
       <div class="badge">PAID · ${data.receiptNumber}</div>
     </div>
@@ -109,7 +109,7 @@ export function generateReceiptHtml(data: ReceiptData): string {
     </table>
 
     <div class="footer">
-      <p>Thank you for choosing QuantaFONS. This receipt serves as official proof of payment.</p>
+      <p>Thank you for choosing Whybeigh. This receipt serves as official proof of payment.</p>
       <p style="margin-top: 4px;">Confidential & Protected · GST Included</p>
     </div>
   </div>

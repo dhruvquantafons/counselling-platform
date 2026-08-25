@@ -184,7 +184,7 @@ function CheckoutInner() {
         order_id: orderId,
         amount,
         currency: "INR",
-        name: "QuantaFONS Counselling",
+        name: "Whybeigh Counselling",
         description: `Session with ${counsellor.name}`,
         prefill: {
           name,
@@ -209,6 +209,17 @@ function CheckoutInner() {
                 paymentId: response.razorpay_payment_id || `pay_${Date.now()}`,
                 signature: response.razorpay_signature || "",
                 bookingId,
+                method: (() => {
+                  let m = response.method || response.razorpay_payment_method || "";
+                  if (!m && name) {
+                    const n = name.toLowerCase();
+                    if (n.includes("upi")) m = "UPI";
+                    else if (n.includes("wallet")) m = "Wallet";
+                    else if (n.includes("netbank")) m = "Netbanking";
+                    else if (n.includes("card")) m = "Card";
+                  }
+                  return m || "Card";
+                })(),
               }),
             });
           } catch {

@@ -1,4 +1,4 @@
-# QuantaFONS - Online Counselling Platform
+# Whybeigh - Online Counselling Platform
 
 A modern web-based counselling platform enabling visitors to browse counsellors, book sessions, pay online, select timezone-aware appointment slots, download PDF receipts, and join automated video consultations. Includes a comprehensive Counsellor Admin Portal for schedule, session, and profile management.
 

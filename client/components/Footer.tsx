@@ -35,10 +35,10 @@ export default function Footer() {
           <div className="col-span-2 md:col-span-1">
             <Link href="/" className="flex items-center gap-2 mb-4">
               <div className="w-8 h-8 rounded-full bg-sage flex items-center justify-center text-white font-display text-sm font-semibold">
-                Q
+                W
               </div>
               <span className="font-display text-lg text-ink">
-                Quanta<span className="text-sage">FONS</span>
+                Why<span className="text-sage">beigh</span>
               </span>
             </Link>
             <p className="text-sm text-ink/50 leading-relaxed">
@@ -69,7 +69,7 @@ export default function Footer() {
 
         <div className="pt-8 border-t border-sage/10 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-xs text-ink/40">
-            © {new Date().getFullYear()} QuantaFONS. All rights reserved.
+            © {new Date().getFullYear()} Whybeigh. All rights reserved.
           </p>
           <p className="text-xs text-ink/30">
             Not a substitute for professional medical advice.

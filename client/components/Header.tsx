@@ -35,10 +35,10 @@ export default function Header() {
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5 group">
           <div className="w-8 h-8 rounded-full bg-sage flex items-center justify-center text-white font-display text-sm font-semibold group-hover:bg-sage-dark transition-colors">
-            Q
+            W
           </div>
           <span className="font-display text-lg text-ink tracking-tight">
-            Quanta<span className="text-sage">FONS</span>
+            Why<span className="text-sage">beigh</span>
           </span>
         </Link>
 

@@ -17,7 +17,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "QuantaFONS — Online Counselling Platform",
+  title: "Whybeigh — Online Counselling Platform",
   description:
     "Talk to verified counsellors online. Browse by specialisation, book a session, and join a private video consultation — all from the comfort of your home.",
 };

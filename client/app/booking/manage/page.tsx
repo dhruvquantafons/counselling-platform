@@ -258,7 +258,7 @@ function BookingManageInner() {
             rel="noopener noreferrer"
             className="border border-sage/20 text-ink/80 hover:text-ink px-5 py-2.5 rounded-full text-xs font-medium hover:bg-sage-light/50 transition-colors flex items-center gap-1.5"
           >
-            📄 Download Official Receipt (PDF)
+            Download Official Receipt (PDF)
           </a>
 
           {/* Reschedule & Cancel buttons if booking is confirmed */}
