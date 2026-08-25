@@ -9,7 +9,7 @@ type Counsellor = {
 };
 
 async function getCounsellors(): Promise<Counsellor[]> {
-  const res = await fetch("http://localhost:4000/api/counsellors", {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000"}/api/counsellors`, {
     cache: "no-store",
   });
   return res.json();

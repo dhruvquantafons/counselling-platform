@@ -1,7 +1,8 @@
 import Link from "next/link";
 
 async function getCounsellor(id: string) {
-  const res = await fetch(`http://localhost:4000/api/counsellors/${id}`, {
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+  const res = await fetch(`${apiBase}/api/counsellors/${id}`, {
     cache: "no-store",
   });
   if (!res.ok) return null;

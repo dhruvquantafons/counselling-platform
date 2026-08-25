@@ -15,7 +15,7 @@ declare global {
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 const steps = ["Select Counsellor", "Your Details", "Payment", "Choose Slot"];
 const RAZORPAY_SCRIPT = "https://checkout.razorpay.com/v1/checkout.js";
-const API_BASE = "http://localhost:4000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";;
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
 type Counsellor = {
@@ -56,11 +56,10 @@ function PaymentBanner({
   return (
     <div
       role="alert"
-      className={`flex items-start gap-3 rounded-2xl px-4 py-3.5 mb-6 text-sm border animate-fade-in-up ${
-        isFailed
-          ? "bg-red-50 border-red-200 text-red-700"
-          : "bg-amber-light/60 border-amber/20 text-ink/70"
-      }`}
+      className={`flex items-start gap-3 rounded-2xl px-4 py-3.5 mb-6 text-sm border animate-fade-in-up ${isFailed
+        ? "bg-red-50 border-red-200 text-red-700"
+        : "bg-amber-light/60 border-amber/20 text-ink/70"
+        }`}
     >
       <span className="mt-0.5 shrink-0">
         {isFailed ? (
@@ -92,9 +91,8 @@ function PaymentBanner({
       <button
         onClick={onDismiss}
         aria-label="Dismiss"
-        className={`shrink-0 mt-0.5 hover:opacity-70 transition-opacity ${
-          isFailed ? "text-red-400" : "text-ink/40"
-        }`}
+        className={`shrink-0 mt-0.5 hover:opacity-70 transition-opacity ${isFailed ? "text-red-400" : "text-ink/40"
+          }`}
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -310,11 +308,10 @@ function CheckoutInner() {
               <div key={step} className="flex items-center flex-1">
                 <div className="flex flex-col items-center">
                   <div
-                    className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-mono transition-colors ${
-                      i <= 1
-                        ? "bg-sage text-white shadow-soft"
-                        : "bg-sage-light text-sage-dark"
-                    }`}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-mono transition-colors ${i <= 1
+                      ? "bg-sage text-white shadow-soft"
+                      : "bg-sage-light text-sage-dark"
+                      }`}
                   >
                     {i < 1 ? (
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -330,9 +327,8 @@ function CheckoutInner() {
                 </div>
                 {i < steps.length - 1 && (
                   <div
-                    className={`flex-1 h-px mx-2 transition-colors ${
-                      i < 1 ? "bg-sage" : "bg-sage/20"
-                    }`}
+                    className={`flex-1 h-px mx-2 transition-colors ${i < 1 ? "bg-sage" : "bg-sage/20"
+                      }`}
                   />
                 )}
               </div>
@@ -369,9 +365,8 @@ function CheckoutInner() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 disabled={isSubmitting}
-                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage/50 transition-all disabled:opacity-50 ${
-                  errors.name ? "border-red-300 focus:ring-red-100" : "border-sage/15"
-                }`}
+                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage/50 transition-all disabled:opacity-50 ${errors.name ? "border-red-300 focus:ring-red-100" : "border-sage/15"
+                  }`}
                 placeholder="Enter your full name"
               />
               {errors.name && (
@@ -394,9 +389,8 @@ function CheckoutInner() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={isSubmitting}
-                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage/50 transition-all disabled:opacity-50 ${
-                  errors.email ? "border-red-300 focus:ring-red-100" : "border-sage/15"
-                }`}
+                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage/50 transition-all disabled:opacity-50 ${errors.email ? "border-red-300 focus:ring-red-100" : "border-sage/15"
+                  }`}
                 placeholder="you@example.com"
               />
               {errors.email && (
@@ -419,9 +413,8 @@ function CheckoutInner() {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 disabled={isSubmitting}
-                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage/50 transition-all disabled:opacity-50 ${
-                  errors.phone ? "border-red-300 focus:ring-red-100" : "border-sage/15"
-                }`}
+                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage/50 transition-all disabled:opacity-50 ${errors.phone ? "border-red-300 focus:ring-red-100" : "border-sage/15"
+                  }`}
                 placeholder="10-digit mobile number"
               />
               {errors.phone && (

@@ -9,7 +9,8 @@ type Counsellor = {
 };
 
 async function getCounsellors(): Promise<Counsellor[]> {
-  const res = await fetch("http://localhost:4000/api/counsellors", {
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+  const res = await fetch(`${apiBase}/api/counsellors`, {
     cache: "no-store",
   });
   if (!res.ok) throw new Error("Failed to load counsellors");
