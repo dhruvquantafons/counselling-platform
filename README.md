@@ -1,6 +1,6 @@
 # Whybeigh — Online Counselling Platform
 
-A modern, production-ready web counselling platform enabling visitors to browse verified counsellors, book online sessions, pay securely via Razorpay, select timezone-aware appointment slots, view interactive receipts, download PDF receipts, and join video consultations. Features a full Counsellor Admin Portal with 2FA authentication, recurring schedule generator, block date tools, private clinical notes, search, pagination, and payment method analytics.
+A modern, production-ready web counselling platform enabling visitors to browse verified counsellors, book online sessions, pay securely via Razorpay, select timezone-aware appointment slots, view interactive receipts, download PDF receipts, and join video consultations. Features a full Counsellor Admin Portal with 2FA authentication, recurring schedule generator, block date tools, private clinical notes, search, pagination, payment method analytics, and Render cloud deployment readiness.
 
 ---
 
@@ -20,7 +20,7 @@ README.md
 - **Framework**: Next.js 16 (App Router) + React 19
 - **Styling**: Vanilla CSS Variables + Tailwind CSS (`--color-paper`, `--color-sage`, `--color-ink`, `--color-amber`)
 - **UI Design System**: Clean typography without emojis, glassmorphic cards, responsive modals, smooth micro-animations (`animate-fade-in`, `animate-scale-up`).
-- **State & Search**: Instant client-side filtering, debounced search inputs, and page-based pagination controls.
+- **State & Search**: Instant client-side filtering, debounced search inputs, and page-based pagination controls across all dashboard sections.
 
 ### **Backend & Database**
 - **Runtime & Framework**: Node.js + Express.js
@@ -59,13 +59,18 @@ npm install
 
 ### 3. Set up environment variables
 
-Copy `.env.example` to `.env` in `/server` and specify your database connection & Razorpay credentials:
+**Backend Environment Variables (`/server/.env`):**
 ```env
 DATABASE_URL="postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:6543/postgres"
 RAZORPAY_KEY_ID="rzp_test_..."
 RAZORPAY_KEY_SECRET="..."
 RAZORPAY_WEBHOOK_SECRET="..."
 PORT=4000
+```
+
+**Frontend Environment Variables (`/client/.env.local`):**
+```env
+NEXT_PUBLIC_API_URL="http://localhost:4000"
 ```
 
 ### 4. Database Setup & Migrations
@@ -82,7 +87,7 @@ npx dotenv-cli -e .env -- npx tsx prisma/seed.ts
 npx dotenv-cli -e .env -- npx tsx prisma/seed-availability.ts
 ```
 
-### 5. Run the application
+### 5. Run locally
 
 **Start Backend API Server:**
 ```bash
@@ -97,6 +102,33 @@ cd client
 npm run dev
 ```
 *Frontend runs on `http://localhost:3000`*
+
+---
+
+## Render Cloud Deployment Guide
+
+The application is configured for deployment on [Render](https://render.com) as two separate web services connected to Supabase PostgreSQL:
+
+### 1. Backend Service (`counselling-platform`)
+- **Root Directory**: `server`
+- **Build Command**: `npm install && npm run build`
+- **Start Command**: `npm run start`
+- **Environment Variables**:
+  - `DATABASE_URL`: Your Supabase connection string
+  - `RAZORPAY_KEY_ID`: Razorpay Key ID
+  - `RAZORPAY_KEY_SECRET`: Razorpay Secret
+  - `RAZORPAY_WEBHOOK_SECRET`: Razorpay Webhook Secret
+  - `PORT`: `10000`
+
+### 2. Frontend Service (`counselling-platform-frontend`(https://counselling-platform-frontend.onrender.com))
+- **Root Directory**: `client`
+- **Build Command**: `npm install && npm run build`
+- **Start Command**: `npm run start`
+- **Environment Variables**:
+  - `NEXT_PUBLIC_API_URL`: Your live backend service URL (e.g. `https://counselling-platform.onrender.com` — *no trailing slash*)
+
+> [!IMPORTANT]
+> Next.js inlines `NEXT_PUBLIC_*` environment variables at **build time**. When setting `NEXT_PUBLIC_API_URL` on Render, click **Manual Deploy → Clear build cache & deploy** to bake in the live API URL.
 
 ---
 
@@ -154,6 +186,7 @@ npm run dev
 
 | Module / Requirement | Description | Status |
 |---|---|---|
+| **Deployment** | Render deployment setup with build/start scripts and environment variables | ✅ Completed |
 | **Database Migration** | Supabase PostgreSQL migration & Prisma schema alignment | ✅ Completed |
 | **Search Engine** | Real-time search in Overview, Availability, and Sessions tabs | ✅ Completed |
 | **Pagination Controls** | Multi-page pagination controls with item counters across dashboard tabs | ✅ Completed |
