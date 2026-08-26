@@ -35,17 +35,19 @@ model Availability {
 }
 
 model Booking {
-  id             String     @id @default(uuid())
-  counsellorId   String
-  counsellor     Counsellor @relation(fields: [counsellorId], references: [id])
-  visitorName    String
-  visitorEmail   String
-  visitorPhone   String
-  startTime      DateTime
-  status         BookingStatus @default(PENDING)
-  createdAt      DateTime   @default(now())
+  id                   String     @id @default(uuid())
+  counsellorId         String
+  counsellor           Counsellor @relation(fields: [counsellorId], references: [id])
+  visitorName          String
+  visitorEmail         String
+  visitorPhone         String
+  startTime            DateTime
+  status               BookingStatus @default(PENDING)
+  roomId               String?    @unique
+  sessionDurationMinutes Int      @default(50)
+  createdAt            DateTime   @default(now())
 
-  payment        Payment?
+  payment              Payment?
 
   @@unique([counsellorId, startTime]) // enforced again here at booking level
 }

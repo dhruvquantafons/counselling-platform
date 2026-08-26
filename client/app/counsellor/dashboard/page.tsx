@@ -110,11 +110,10 @@ function PaginationControl({
             <button
               key={p}
               onClick={() => onPageChange(p)}
-              className={`w-8 h-8 rounded-lg border transition-colors ${
-                currentPage === p
+              className={`w-8 h-8 rounded-lg border transition-colors ${currentPage === p
                   ? "bg-sage text-white border-sage font-bold"
                   : "bg-white text-ink/70 border-sage/20 hover:bg-sage-light/40"
-              }`}
+                }`}
             >
               {p}
             </button>
@@ -228,7 +227,7 @@ export default function CounsellorDashboard() {
       .then((data) => {
         if (Array.isArray(data)) setSlots(data);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [counsellor]);
 
   const fetchSessions = useCallback(() => {
@@ -238,7 +237,7 @@ export default function CounsellorDashboard() {
       .then((data) => {
         if (Array.isArray(data)) setSessions(data);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [counsellor]);
 
   const fetchEarnings = useCallback(() => {
@@ -246,7 +245,7 @@ export default function CounsellorDashboard() {
     fetch(`${API_BASE}/api/counsellor/earnings?counsellorId=${counsellor.id}`)
       .then((r) => r.json())
       .then((data) => setEarnings(data))
-      .catch(() => {});
+      .catch(() => { });
   }, [counsellor]);
 
   useEffect(() => {
@@ -405,10 +404,10 @@ export default function CounsellorDashboard() {
       setCounsellor((prev) =>
         prev
           ? {
-              ...prev,
-              pendingApproval: true,
-              pendingChanges: data.pendingChanges,
-            }
+            ...prev,
+            pendingApproval: true,
+            pendingChanges: data.pendingChanges,
+          }
           : null
       );
       setActionMessage({
@@ -490,8 +489,8 @@ export default function CounsellorDashboard() {
       sessionFilter === "all"
         ? true
         : sessionFilter === "upcoming"
-        ? new Date(s.startTime) >= new Date()
-        : new Date(s.startTime) < new Date();
+          ? new Date(s.startTime) >= new Date()
+          : new Date(s.startTime) < new Date();
 
     const dt = new Date(s.startTime);
     const dateStr = dt.toLocaleDateString("en-IN", {
@@ -545,11 +544,10 @@ export default function CounsellorDashboard() {
       {/* Action Notification Banner */}
       {actionMessage && (
         <div
-          className={`mb-6 rounded-2xl p-4 text-xs font-medium flex items-center justify-between animate-fade-in-up ${
-            actionMessage.type === "success"
+          className={`mb-6 rounded-2xl p-4 text-xs font-medium flex items-center justify-between animate-fade-in-up ${actionMessage.type === "success"
               ? "bg-sage-light/70 text-sage-dark border border-sage/20"
               : "bg-red-50 text-red-700 border border-red-200"
-          }`}
+            }`}
         >
           <span>{actionMessage.text}</span>
           <button onClick={() => setActionMessage(null)} className="opacity-60 hover:opacity-100">
@@ -570,11 +568,10 @@ export default function CounsellorDashboard() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as typeof activeTab)}
-            className={`px-5 py-2.5 rounded-full text-xs font-mono tracking-wide transition-all ${
-              activeTab === tab.id
+            className={`px-5 py-2.5 rounded-full text-xs font-mono tracking-wide transition-all ${activeTab === tab.id
                 ? "bg-sage text-white shadow-soft"
                 : "bg-white text-ink/70 border border-sage/15 hover:bg-sage-light/40"
-            }`}
+              }`}
           >
             {tab.label}
           </button>
@@ -662,10 +659,10 @@ export default function CounsellorDashboard() {
                     mode === "Card"
                       ? "bg-blue-50 text-blue-700 border-blue-200"
                       : mode === "UPI"
-                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                      : mode === "Wallet"
-                      ? "bg-amber-50 text-amber-800 border-amber-200"
-                      : "bg-purple-50 text-purple-700 border-purple-200";
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        : mode === "Wallet"
+                          ? "bg-amber-50 text-amber-800 border-amber-200"
+                          : "bg-purple-50 text-purple-700 border-purple-200";
 
                   return (
                     <div
@@ -831,11 +828,10 @@ export default function CounsellorDashboard() {
                               selected ? prev.filter((d) => d !== item.day) : [...prev, item.day]
                             )
                           }
-                          className={`w-8 h-8 rounded-lg text-xs font-mono transition-colors ${
-                            selected
+                          className={`w-8 h-8 rounded-lg text-xs font-mono transition-colors ${selected
                               ? "bg-sage text-white font-bold"
                               : "bg-sage-light/50 text-ink/50 hover:bg-sage-light"
-                          }`}
+                            }`}
                         >
                           {item.label}
                         </button>
@@ -934,19 +930,17 @@ export default function CounsellorDashboard() {
                   return (
                     <div
                       key={slot.id}
-                      className={`p-4 rounded-xl border flex items-center justify-between transition-all ${
-                        slot.isBooked
+                      className={`p-4 rounded-xl border flex items-center justify-between transition-all ${slot.isBooked
                           ? "bg-sage-light/40 border-sage/20 text-ink/60"
                           : "bg-paper/40 border-sage/15 text-ink hover:border-sage/40"
-                      }`}
+                        }`}
                     >
                       <div>
                         <p className="font-mono text-xs font-semibold">{dateStr}</p>
                         <p className="text-xs text-ink/70">{timeStr}</p>
                         <span
-                          className={`inline-block text-[10px] font-mono px-2 py-0.5 rounded mt-1.5 ${
-                            slot.isBooked ? "bg-sage text-white" : "bg-sage-light text-sage-dark"
-                          }`}
+                          className={`inline-block text-[10px] font-mono px-2 py-0.5 rounded mt-1.5 ${slot.isBooked ? "bg-sage text-white" : "bg-sage-light text-sage-dark"
+                            }`}
                         >
                           {slot.isBooked ? "Booked" : "Open"}
                         </span>
@@ -1027,9 +1021,8 @@ export default function CounsellorDashboard() {
                       setSessionFilter(f);
                       setSessionPage(1);
                     }}
-                    className={`px-3 py-1.5 rounded-lg uppercase ${
-                      sessionFilter === f ? "bg-sage text-white font-medium" : "bg-white border border-sage/20 text-ink/60 hover:bg-sage-light/30"
-                    }`}
+                    className={`px-3 py-1.5 rounded-lg uppercase ${sessionFilter === f ? "bg-sage text-white font-medium" : "bg-white border border-sage/20 text-ink/60 hover:bg-sage-light/30"
+                      }`}
                   >
                     {f}
                   </button>
@@ -1134,11 +1127,10 @@ export default function CounsellorDashboard() {
                 <button
                   key={s.id}
                   onClick={() => handleSelectSessionForNotes(s.id)}
-                  className={`w-full text-left p-3 rounded-xl border text-xs transition-all ${
-                    selectedBookingId === s.id
+                  className={`w-full text-left p-3 rounded-xl border text-xs transition-all ${selectedBookingId === s.id
                       ? "bg-sage text-white border-sage"
                       : "bg-paper/40 border-sage/15 hover:bg-sage-light/30"
-                  }`}
+                    }`}
                 >
                   <p className="font-semibold">{s.visitorName}</p>
                   <p className="opacity-80 text-[11px] font-mono">
@@ -1208,7 +1200,7 @@ export default function CounsellorDashboard() {
               <div>
                 <p className="font-semibold mb-0.5">Pending Platform Administrator Approval</p>
                 <p className="text-[11px] opacity-80">
-                  Your submitted profile modifications are currently under review by the platform administrator. 
+                  Your submitted profile modifications are currently under review by the platform administrator.
                   Existing approved profile remains active until approved.
                 </p>
               </div>
@@ -1323,10 +1315,10 @@ export default function CounsellorDashboard() {
                     {selectedRecord.paymentMode === "UPI"
                       ? "UPI (Google Pay / PhonePe)"
                       : selectedRecord.paymentMode === "Wallet"
-                      ? "Mobile Wallet"
-                      : selectedRecord.paymentMode === "Netbanking"
-                      ? "Netbanking"
-                      : "Credit / Debit Card"}
+                        ? "Mobile Wallet"
+                        : selectedRecord.paymentMode === "Netbanking"
+                          ? "Netbanking"
+                          : "Credit / Debit Card"}
                   </p>
                 </div>
                 <div>
