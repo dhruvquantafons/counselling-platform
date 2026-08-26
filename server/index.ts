@@ -5,10 +5,32 @@ import { PrismaPg } from '@prisma/adapter-pg'
 import 'dotenv/config'
 import Razorpay from 'razorpay'
 import crypto from 'crypto'
+import jwt from 'jsonwebtoken'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { generateReceiptHtml, generateReceiptNumber } from './receipt.js'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
+
+// ─── JaaS (8x8.vc) credentials + signing key loaded once at startup (Step 2.4) ───
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const JAAS_PRIVATE_KEY_PATH = path.join(__dirname, 'jaas-private-key.pem')
+let JAAS_PRIVATE_KEY: string | null = null
+try {
+  JAAS_PRIVATE_KEY = fs.readFileSync(JAAS_PRIVATE_KEY_PATH, 'utf8')
+  console.log('[jaas] ✅ Private key loaded from jaas-private-key.pem')
+} catch (err) {
+  console.warn('[jaas] ⚠️  WARNING: Could not load jaas-private-key.pem. /join-token will return 500.')
+  if (err instanceof Error) console.warn('[jaas]   →', err.message)
+}
+const JITSI_APP_ID = process.env.JITSI_APP_ID || ''
+const JITSI_KEY_ID = process.env.JITSI_KEY_ID || ''
+const JITSI_DOMAIN = process.env.JITSI_DOMAIN || '8x8.vc'
+if (!JITSI_APP_ID || !JITSI_KEY_ID) {
+  console.warn('[jaas] ⚠️  WARNING: JITSI_APP_ID and/or JITSI_KEY_ID missing in server/.env. /join-token will return 500.')
+}
 
 const app = express()
 app.use(cors())
@@ -34,6 +56,61 @@ function isSlotHeld(slotId: string): boolean {
   }
   return true
 }
+
+// ─── Video Session Window Helpers ────────────────────────────────────────────
+
+export type SessionAccessState =
+  | 'UNCONFIRMED'   // PENDING / CANCELLED booking — no room exists
+  | 'NOT_STARTED'   // confirmed but not yet within 5-min early-entry window
+  | 'OPEN_EARLY'    // within 5 min before start (entry allowed)
+  | 'IN_SESSION'    // between startTime and endTime
+  | 'ENDED'         // past endTime — access revoked
+
+export interface SessionWindowInfo {
+  state: SessionAccessState
+  earlyEntryAt: Date
+  sessionEndsAt: Date
+  msUntilEntry: number   // 0 if room is currently joinable
+  msUntilEnd: number     // 0 if session is not active / ended
+}
+
+/**
+ * Pure function: given booking startTime + sessionDurationMinutes, compute
+ * where we are in the session lifecycle and the key boundary timestamps.
+ * Entry is permitted from 5 minutes before startTime until sessionEndsAt.
+ */
+export function getSessionAccessState(
+  startTime: Date,
+  sessionDurationMinutes: number,
+  now: Date = new Date(),
+): SessionWindowInfo {
+  const earlyEntryAt = new Date(startTime.getTime() - 5 * 60 * 1000)
+  const sessionEndsAt = new Date(startTime.getTime() + sessionDurationMinutes * 60 * 1000)
+  const nowMs = now.getTime()
+
+  let state: SessionAccessState
+  if (nowMs < earlyEntryAt.getTime()) {
+    state = 'NOT_STARTED'
+  } else if (nowMs < startTime.getTime()) {
+    state = 'OPEN_EARLY'
+  } else if (nowMs < sessionEndsAt.getTime()) {
+    state = 'IN_SESSION'
+  } else {
+    state = 'ENDED'
+  }
+
+  const msUntilEntry = Math.max(0, earlyEntryAt.getTime() - nowMs)
+  const msUntilEnd = Math.max(0, sessionEndsAt.getTime() - nowMs)
+
+  return { state, earlyEntryAt, sessionEndsAt, msUntilEntry, msUntilEnd }
+}
+
+/** True if the booking is currently in a joinable window (OPEN_EARLY / IN_SESSION). */
+export function isSessionJoinable(window: SessionWindowInfo): boolean {
+  return window.state === 'OPEN_EARLY' || window.state === 'IN_SESSION'
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 // GET all counsellors (directory)
 app.get('/api/counsellors', async (req, res) => {
@@ -183,6 +260,221 @@ app.get('/api/bookings/:bookingId', async (req, res) => {
   })
 })
 
+// GET /api/bookings/:bookingId/session-info
+// Public (gated by bookingId knowledge). Returns session lifecycle state,
+// room identifier (only if confirmed), and countdown timestamps.
+app.get('/api/bookings/:bookingId/session-info', async (req, res) => {
+  const { bookingId } = req.params
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      counsellor: { select: { id: true, name: true, email: true, specialisation: true } },
+    },
+  })
+  if (!booking) return res.status(404).json({ error: 'Booking not found' })
+
+  // Booking doesn't have a real scheduled slot yet (or was cancelled)
+  if (booking.status === 'PENDING' || booking.status === 'CANCELLED') {
+    return res.json({
+      bookingId: booking.id,
+      status: booking.status,
+      accessState: 'UNCONFIRMED' as const,
+      counsellorId: booking.counsellor.id,
+      counsellorName: booking.counsellor.name,
+      visitorName: booking.visitorName,
+    })
+  }
+
+  // CONFIRMED or COMPLETED — we have a real startTime + duration
+  const window = getSessionAccessState(booking.startTime, booking.sessionDurationMinutes)
+
+  // Only expose roomId once a session is confirmed (prevents leaking UUIDs for cancelled etc.)
+  const confirmed = booking.status === 'CONFIRMED' || booking.status === 'COMPLETED'
+
+  return res.json({
+    bookingId: booking.id,
+    status: booking.status,
+    accessState: window.state,
+    roomId: confirmed ? booking.roomId : null,
+    counsellorId: booking.counsellor.id,
+    counsellorName: booking.counsellor.name,
+    counsellorEmail: booking.counsellor.email,
+    counsellorSpecialisation: booking.counsellor.specialisation,
+    visitorName: booking.visitorName,
+    visitorEmail: booking.visitorEmail,
+    startTime: booking.startTime.toISOString(),
+    sessionDurationMinutes: booking.sessionDurationMinutes,
+    earlyEntryAt: window.earlyEntryAt.toISOString(),
+    sessionEndsAt: window.sessionEndsAt.toISOString(),
+    msUntilEntry: window.msUntilEntry,
+    msUntilEnd: window.msUntilEnd,
+    isJoinable: isSessionJoinable(window),
+  })
+})
+
+// GET /api/bookings/:bookingId/join-token
+// Enforces all access rules and returns a placeholder payload that will
+// become a real signed Jitsi JWT once Jitsi env vars are in place (Step 2.4).
+//
+// Query params:
+//   role: 'visitor' | 'counsellor' — required
+//   counsellorId: string — required when role === 'counsellor' (matches
+//     existing counsellor-token pattern of passing UUID via query string)
+//
+// Response when all guards pass (placeholder, will be replaced with real JWT):
+//   { placeholder: true, roomId, role, user: { id, name, email, moderator },
+//     validUntil, sessionEndsAt }
+app.get('/api/bookings/:bookingId/join-token', async (req, res) => {
+  const { bookingId } = req.params
+  const role = req.query.role as string | undefined
+  const counsellorIdFromQuery = req.query.counsellorId as string | undefined
+
+  // ── Guard 0: Validate role param ────────────────────────────────────────
+  if (role !== 'visitor' && role !== 'counsellor') {
+    return res.status(400).json({
+      error: 'Invalid role',
+      detail: "Query param 'role' must be either 'visitor' or 'counsellor'",
+    })
+  }
+
+  // ── Guard 1: Booking exists ─────────────────────────────────────────────
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { counsellor: { select: { id: true, name: true, email: true } } },
+  })
+  if (!booking) return res.status(404).json({ error: 'Booking not found' })
+
+  // ── Guard 2: Booking is confirmed (not pending / cancelled) ─────────────
+  if (booking.status !== 'CONFIRMED' && booking.status !== 'COMPLETED') {
+    return res.status(400).json({
+      error: 'Booking not confirmed',
+      bookingStatus: booking.status,
+    })
+  }
+
+  // ── Guard 3: Room identifier is present (sanity check) ──────────────────
+  if (!booking.roomId) {
+    return res.status(500).json({
+      error: 'Room not initialised for this booking',
+      detail: 'Contact support — no roomId assigned despite CONFIRMED status.',
+    })
+  }
+
+  // ── Guard 4: Role check ─────────────────────────────────────────────────
+  type ResolvedRole = 'visitor' | 'counsellor'
+  let resolvedRole: ResolvedRole
+  let userId: string
+  let userName: string
+  let userEmail: string
+  let isModerator: boolean
+
+  if (role === 'counsellor') {
+    if (!counsellorIdFromQuery) {
+      return res.status(400).json({
+        error: 'counsellorId is required',
+        detail: "Query param 'counsellorId' is required when role='counsellor'",
+      })
+    }
+    if (counsellorIdFromQuery !== booking.counsellor.id) {
+      return res.status(403).json({
+        error: 'Not the assigned counsellor',
+        detail: 'Only the counsellor assigned to this booking may join with counsellor privileges.',
+      })
+    }
+    resolvedRole = 'counsellor'
+    userId = `counsellor_${booking.counsellor.id}`
+    userName = booking.counsellor.name
+    userEmail = booking.counsellor.email
+    isModerator = true
+  } else {
+    // 'visitor' — identity is established by possession of bookingId (matches
+    // existing platform pattern — visitors have no accounts / JWT).
+    resolvedRole = 'visitor'
+    userId = `visitor_${booking.id}`
+    userName = booking.visitorName
+    userEmail = booking.visitorEmail
+    isModerator = false
+  }
+
+  // ── Guard 5: Time-window check (5-min early entry, revoke after end) ────
+  const window = getSessionAccessState(booking.startTime, booking.sessionDurationMinutes)
+
+  if (window.state === 'NOT_STARTED') {
+    return res.status(403).json({
+      error: 'Room not yet open',
+      detail: 'Entry is permitted starting 5 minutes before the scheduled session time.',
+      opensAt: window.earlyEntryAt.toISOString(),
+      msUntilOpen: window.msUntilEntry,
+    })
+  }
+  if (window.state === 'ENDED') {
+    return res.status(403).json({
+      error: 'Session has ended',
+      detail: 'Access to this session has been revoked because the session window has closed.',
+      endedAt: window.sessionEndsAt.toISOString(),
+    })
+  }
+  // state is now either OPEN_EARLY or IN_SESSION → join allowed
+
+  // ── All guards passed → sign a real RS256 JWT for JaaS / 8x8.vc (Step 2.4) ──
+  if (!JAAS_PRIVATE_KEY || !JITSI_APP_ID || !JITSI_KEY_ID) {
+    return res.status(500).json({
+      error: 'JaaS signing not configured on server',
+      detail: 'Missing jaas-private-key.pem, JITSI_APP_ID, or JITSI_KEY_ID.',
+    })
+  }
+
+  const TOKEN_TTL_SEC = 2 * 60 // 2 minutes — short-lived per spec
+  const now = Math.floor(Date.now() / 1000)
+
+  const signedUser = {
+    id: userId,
+    name: userName,
+    email: userEmail,
+    moderator: isModerator, // true ONLY when role === 'counsellor'
+  }
+
+  const claims: object = {
+    aud: 'jitsi',
+    iss: 'chat', // JaaS spec requires 'iss' to be exactly 'chat'
+    sub: JITSI_APP_ID,
+    room: '*', // Wildcard: valid for any room under this App ID — avoids mismatch with prefixed roomName client uses
+    context: {
+      user: signedUser,
+      features: {
+        livestreaming: false,
+        recording: false,
+        transcription: false,
+        "send-groupchat": true,
+      },
+    },
+    nbf: now - 3600, // 1 hour in the past to fully prevent clock drift errors
+    exp: now + 3600, // 1 hour token duration for session stability
+  }
+
+  try {
+    const token = jwt.sign(claims, JAAS_PRIVATE_KEY, {
+      algorithm: 'RS256',
+      keyid: JITSI_KEY_ID, // critical: 8x8.vc JWKS lookup matches this kid
+    })
+
+    const tokenValidUntil = new Date((now + TOKEN_TTL_SEC) * 1000)
+    return res.json({
+      token,
+      roomId: `${JITSI_APP_ID}/${booking.roomId}`, // Critical: JaaS requires AppID prefix in roomName
+      domain: JITSI_DOMAIN, // '8x8.vc' — client mounts iframe from this domain
+      role: resolvedRole,
+      user: signedUser,
+      sessionEndsAt: window.sessionEndsAt.toISOString(),
+      tokenValidUntil: tokenValidUntil.toISOString(),
+    })
+  } catch (err) {
+    console.error('[jaas] jwt.sign() failed for booking', bookingId, err)
+    return res.status(500).json({ error: 'Failed to issue session token' })
+  }
+})
+
 // PATCH /api/bookings/:bookingId/slot
 // Body: { availabilityId }
 // Atomically marks the availability slot as booked and updates booking.startTime + confirms booking status.
@@ -199,7 +491,8 @@ app.patch('/api/bookings/:bookingId/slot', async (req, res) => {
   const booking = await prisma.booking.findUnique({ where: { id: bookingId }, include: { payment: true } })
   if (!booking) return res.status(404).json({ error: 'Booking not found' })
 
-  // Atomic: mark slot booked + update booking's real startTime and status to CONFIRMED
+  // Atomic: mark slot booked + update booking's real startTime, status, and generate roomId
+  const generatedRoomId = `room_${crypto.randomUUID().replace(/-/g, '')}`
   await prisma.$transaction([
     prisma.availability.update({
       where: { id: availabilityId },
@@ -207,7 +500,7 @@ app.patch('/api/bookings/:bookingId/slot', async (req, res) => {
     }),
     prisma.booking.update({
       where: { id: bookingId },
-      data:  { startTime: availability.startTime, status: 'CONFIRMED' },
+      data:  { startTime: availability.startTime, status: 'CONFIRMED', roomId: generatedRoomId, sessionDurationMinutes: 50 },
     }),
     ...(booking.payment && booking.payment.status === 'INITIATED' ? [
       prisma.payment.update({
@@ -217,7 +510,7 @@ app.patch('/api/bookings/:bookingId/slot', async (req, res) => {
     ] : [])
   ])
 
-  res.json({ ok: true, startTime: availability.startTime, status: 'CONFIRMED' })
+  res.json({ ok: true, startTime: availability.startTime, status: 'CONFIRMED', roomId: generatedRoomId })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

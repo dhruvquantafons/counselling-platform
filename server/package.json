@@ -15,6 +15,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
     "pg": "^8.23.0",
     "prisma": "^7.9.1",
     "razorpay": "^2.9.8"
@@ -22,6 +23,7 @@
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.20.1",
     "dotenv-cli": "^11.0.0",
     "ts-node": "^10.9.2",

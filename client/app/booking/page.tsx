@@ -123,7 +123,7 @@ function SlotPickerInner() {
       if (!res.ok) throw new Error(data.error || "Failed to confirm slot");
       setConfirmed(true);
       // Brief delay so the user sees the success state before redirect
-      setTimeout(() => router.push("/session"), 1500);
+      setTimeout(() => router.push(`/session?bookingId=${encodeURIComponent(bookingId)}`), 1500);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
