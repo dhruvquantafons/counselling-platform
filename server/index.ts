@@ -254,6 +254,9 @@ app.get('/api/bookings/:bookingId', async (req, res) => {
     counsellorId: booking.counsellorId,
     counsellorName: booking.counsellor.name,
     visitorName: booking.visitorName,
+    visitorEmail: booking.visitorEmail,
+    visitorPhone: booking.visitorPhone,
+    startTime: booking.startTime.toISOString(),
     status: booking.status,
   })
 })
@@ -1123,3 +1126,584 @@ app.post('/api/bookings/:id/reschedule', async (req, res) => {
 
 const PORT = process.env.PORT || 4000
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Section 3.7: Platform Administration Panel APIs
+// Auth: all /api/admin/* routes require x-admin-secret header matching ADMIN_SECRET env var
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const ADMIN_SECRET = process.env.ADMIN_SECRET || 'admin-dev-secret'
+
+function requireAdmin(req: any, res: any, next: () => void) {
+  const secret = req.headers['x-admin-secret']
+  if (!secret || secret !== ADMIN_SECRET) {
+    return res.status(401).json({ error: 'Unauthorized — admin secret required' })
+  }
+  next()
+}
+
+async function writeAuditLog(action: string, targetType: string, targetId: string, detail?: string) {
+  await prisma.auditLog.create({
+    data: { actor: 'admin', action, targetType, targetId, detail: detail ?? null },
+  })
+}
+
+// ─── Counsellor Management ────────────────────────────────────────────────────
+
+// GET /api/admin/counsellors?status=PENDING|ACTIVE|SUSPENDED|REMOVED
+app.get('/api/admin/counsellors', requireAdmin, async (req, res) => {
+  const { status } = req.query as { status?: string }
+  const where = status ? { status: status as any } : {}
+  const counsellors = await prisma.counsellor.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true, name: true, email: true, specialisation: true,
+      languages: true, fee: true, bio: true, approved: true,
+      status: true, createdAt: true,
+      _count: { select: { bookings: true } },
+    },
+  })
+  res.json(counsellors)
+})
+
+// POST /api/admin/counsellors — Admin creates counsellor directly (approved, ACTIVE)
+// Body: { name*, email*, phone?, specialisation*, qualifications?, languages*[], fee*, bio?, photoUrl? }
+// Password hash auto-generated silently (not returned — demo-mode login ignores it)
+app.post('/api/admin/counsellors', requireAdmin, async (req, res) => {
+  const {
+    name, email, phone, specialisation, qualifications,
+    languages, fee, bio, photoUrl,
+  } = req.body ?? {}
+
+  // Validate required fields
+  const missing: string[] = []
+  if (!name || typeof name !== 'string' || name.trim().length === 0) missing.push('name')
+  if (!email || typeof email !== 'string' || !/^\S+@\S+\.\S+$/.test(email.trim())) missing.push('email')
+  if (!specialisation || typeof specialisation !== 'string' || specialisation.trim().length === 0) missing.push('specialisation')
+  if (!Array.isArray(languages) || languages.length === 0 || !languages.every((l: any) => typeof l === 'string' && l.trim().length > 0)) missing.push('languages')
+  if (fee === undefined || fee === null || isNaN(Number(fee)) || Number(fee) <= 0) missing.push('fee')
+
+  if (missing.length > 0) {
+    return res.status(400).json({ error: `Missing or invalid fields: ${missing.join(', ')}` })
+  }
+
+  // Check duplicate email (Counsellor.email is @unique)
+  const duplicate = await prisma.counsellor.findUnique({ where: { email: email.trim() } })
+  if (duplicate) {
+    return res.status(409).json({ error: 'A counsellor with this email already exists.' })
+  }
+
+  // Auto-generate a silent password hash. Scrypt with salt. Not stored or shown anywhere — kept only as a future placeholder.
+  const randomPassword = crypto.randomBytes(24).toString('base64url')
+  const salt = crypto.randomBytes(12).toString('base64url')
+  const derivedKey = crypto.scryptSync(randomPassword, salt, 32) as Buffer
+  const passwordHash = `scrypt$${salt}$${derivedKey.toString('base64')}`
+
+  try {
+    const created = await prisma.counsellor.create({
+      data: {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone && typeof phone === 'string' ? phone.trim() : null,
+        specialisation: specialisation.trim(),
+        qualifications: qualifications && typeof qualifications === 'string' ? qualifications.trim() : null,
+        languages: languages.map((l: string) => l.trim()),
+        fee: Number(fee),
+        bio: bio && typeof bio === 'string' ? bio.trim() || null : null,
+        photoUrl: photoUrl && typeof photoUrl === 'string' ? photoUrl.trim() : null,
+        passwordHash,
+        approved: true,
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true, name: true, email: true, phone: true,
+        specialisation: true, qualifications: true, languages: true,
+        fee: true, bio: true, photoUrl: true, approved: true, status: true, createdAt: true,
+      },
+    })
+
+    const languagesStr = created.languages.join(', ')
+    const detail = [
+      `Created counsellor "${created.name}" <${created.email}>`,
+      `Specialisation: ${created.specialisation}`,
+      `Languages: ${languagesStr}`,
+      `Fee: ₹${Number(created.fee)}`,
+    ].join(' | ')
+    await writeAuditLog('CREATE_COUNSELLOR', 'Counsellor', created.id, detail)
+
+    res.status(201).json({
+      ok: true,
+      counsellor: {
+        ...created,
+        fee: Number(created.fee),
+      },
+    })
+  } catch (e: any) {
+    // Prisma P2002 — duplicate unique field (shouldn't happen after our check, but safe guard)
+    if (e?.code === 'P2002') {
+      return res.status(409).json({ error: 'A counsellor with this email already exists.' })
+    }
+    return res.status(500).json({ error: e.message || 'Failed to create counsellor' })
+  }
+})
+
+// PATCH /api/admin/counsellors/:id/approve
+app.patch('/api/admin/counsellors/:id/approve', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const c = await prisma.counsellor.findUnique({ where: { id } })
+  if (!c) return res.status(404).json({ error: 'Counsellor not found' })
+  if (c.status !== 'PENDING') return res.status(400).json({ error: 'Only PENDING counsellors can be approved' })
+
+  const updated = await prisma.counsellor.update({
+    where: { id },
+    data: { status: 'ACTIVE', approved: true },
+  })
+  await writeAuditLog('APPROVE_COUNSELLOR', 'Counsellor', id, `Approved ${c.name} (${c.email})`)
+  res.json({ ok: true, counsellor: updated })
+})
+
+// PATCH /api/admin/counsellors/:id/reject
+app.patch('/api/admin/counsellors/:id/reject', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const c = await prisma.counsellor.findUnique({ where: { id } })
+  if (!c) return res.status(404).json({ error: 'Counsellor not found' })
+
+  const updated = await prisma.counsellor.update({
+    where: { id },
+    data: { status: 'REMOVED', approved: false },
+  })
+  await writeAuditLog('REJECT_COUNSELLOR', 'Counsellor', id, `Rejected application from ${c.name} (${c.email})`)
+  res.json({ ok: true, counsellor: updated })
+})
+
+// PATCH /api/admin/counsellors/:id/suspend
+app.patch('/api/admin/counsellors/:id/suspend', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const { reason } = req.body
+  const c = await prisma.counsellor.findUnique({ where: { id } })
+  if (!c) return res.status(404).json({ error: 'Counsellor not found' })
+  if (c.status !== 'ACTIVE') return res.status(400).json({ error: 'Only ACTIVE counsellors can be suspended' })
+
+  const updated = await prisma.counsellor.update({
+    where: { id },
+    data: { status: 'SUSPENDED', approved: false },
+  })
+  await writeAuditLog('SUSPEND_COUNSELLOR', 'Counsellor', id, `Suspended ${c.name}${reason ? ': ' + reason : ''}`)
+  res.json({ ok: true, counsellor: updated })
+})
+
+// PATCH /api/admin/counsellors/:id/restore
+app.patch('/api/admin/counsellors/:id/restore', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const c = await prisma.counsellor.findUnique({ where: { id } })
+  if (!c) return res.status(404).json({ error: 'Counsellor not found' })
+  if (c.status !== 'SUSPENDED') return res.status(400).json({ error: 'Only SUSPENDED counsellors can be restored' })
+
+  const updated = await prisma.counsellor.update({
+    where: { id },
+    data: { status: 'ACTIVE', approved: true },
+  })
+  await writeAuditLog('RESTORE_COUNSELLOR', 'Counsellor', id, `Restored ${c.name} to ACTIVE`)
+  res.json({ ok: true, counsellor: updated })
+})
+
+// DELETE /api/admin/counsellors/:id
+app.delete('/api/admin/counsellors/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const c = await prisma.counsellor.findUnique({ where: { id } })
+  if (!c) return res.status(404).json({ error: 'Counsellor not found' })
+
+  await prisma.counsellor.update({
+    where: { id },
+    data: { status: 'REMOVED', approved: false },
+  })
+  await writeAuditLog('REMOVE_COUNSELLOR', 'Counsellor', id, `Removed ${c.name} (${c.email})`)
+  res.json({ ok: true })
+})
+
+// ─── Booking Register ─────────────────────────────────────────────────────────
+
+// GET /api/admin/bookings?counsellorId=&dateFrom=&dateTo=&status=&paymentStatus=&page=&pageSize=
+app.get('/api/admin/bookings', requireAdmin, async (req, res) => {
+  const { counsellorId, dateFrom, dateTo, status, paymentStatus, page = '1', pageSize = '20' } = req.query as Record<string, string>
+
+  const where: any = {}
+  if (counsellorId) where.counsellorId = counsellorId
+  if (status) where.status = status
+  if (dateFrom || dateTo) {
+    where.startTime = {}
+    if (dateFrom) where.startTime.gte = new Date(dateFrom)
+    if (dateTo) where.startTime.lte = new Date(dateTo)
+  }
+  if (paymentStatus) where.payment = { status: paymentStatus }
+
+  const skip = (parseInt(page) - 1) * parseInt(pageSize)
+  const take = parseInt(pageSize)
+
+  const [bookings, total] = await Promise.all([
+    prisma.booking.findMany({
+      where,
+      skip,
+      take,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        counsellor: { select: { id: true, name: true, email: true } },
+        payment: { select: { id: true, amount: true, status: true, gatewayPaymentId: true, gatewayOrderId: true, createdAt: true } },
+      },
+    }),
+    prisma.booking.count({ where }),
+  ])
+
+  res.json({ bookings, total, page: parseInt(page), pageSize: parseInt(pageSize) })
+})
+
+// PATCH /api/admin/bookings/:id/slot — Admin slot reschedule / edit (no 24h policy)
+// Body (mode A): { newAvailabilityId } — pick from existing open slots
+// Body (mode B): { customStartTime, customEndTime? } — admin sets custom session time
+//   customEndTime defaults to customStartTime + 50min when omitted
+app.patch('/api/admin/bookings/:id/slot', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const { newAvailabilityId, customStartTime, customEndTime } = req.body
+
+  if (!newAvailabilityId && !customStartTime) {
+    return res.status(400).json({ error: 'Either newAvailabilityId or customStartTime is required' })
+  }
+
+  const booking = await prisma.booking.findUnique({ where: { id } })
+  if (!booking) return res.status(404).json({ error: 'Booking not found' })
+  if (booking.status === 'CANCELLED') return res.status(400).json({ error: 'Cannot edit slot of a cancelled booking' })
+
+  const oldStartTime = booking.startTime
+  let newSlotStartTime: Date
+  let newSlotEndTime: Date
+  let targetAvailabilityId: string | null = null
+
+  // ── Mode A: Pick an existing availability slot ──────────────────────────
+  if (newAvailabilityId) {
+    const slot = await prisma.availability.findUnique({ where: { id: newAvailabilityId } })
+    if (!slot) return res.status(404).json({ error: 'Selected slot not found' })
+    if (slot.counsellorId !== booking.counsellorId) {
+      return res.status(400).json({ error: 'Slot belongs to a different counsellor' })
+    }
+    if (slot.isBooked) {
+      // Allow the slot if it happens to be the exact slot already tied to this booking
+      const sameAsExisting = slot.startTime.getTime() === oldStartTime.getTime()
+      if (!sameAsExisting) {
+        return res.status(409).json({ error: 'Selected slot is already booked' })
+      }
+    }
+    newSlotStartTime = slot.startTime
+    newSlotEndTime = slot.endTime
+    targetAvailabilityId = slot.id
+  } else {
+    // ── Mode B: Custom date/time admin override ──────────────────────────
+    const parsedStart = new Date(customStartTime)
+    if (isNaN(parsedStart.getTime())) {
+      return res.status(400).json({ error: 'customStartTime is not a valid ISO date' })
+    }
+    let parsedEnd: Date
+    if (customEndTime) {
+      parsedEnd = new Date(customEndTime)
+      if (isNaN(parsedEnd.getTime())) {
+        return res.status(400).json({ error: 'customEndTime is not a valid ISO date' })
+      }
+      if (parsedEnd <= parsedStart) {
+        return res.status(400).json({ error: 'customEndTime must be after customStartTime' })
+      }
+    } else {
+      parsedEnd = new Date(parsedStart.getTime() + 50 * 60 * 1000)
+    }
+    newSlotStartTime = parsedStart
+    newSlotEndTime = parsedEnd
+
+    // Conflict check: same counsellor + same startTime already booked by another booking?
+    if (newSlotStartTime.getTime() !== oldStartTime.getTime()) {
+      const conflictBooking = await prisma.booking.findFirst({
+        where: {
+          counsellorId: booking.counsellorId,
+          startTime: newSlotStartTime,
+          NOT: { id: booking.id },
+        },
+      })
+      if (conflictBooking) {
+        return res.status(409).json({ error: 'Another booking already exists for this counsellor at the requested time' })
+      }
+    }
+  }
+
+  // ── Atomic swap: unbook old slot, book/upsert new slot, update booking ──
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 1. Unbook the old availability slot (if it exists and is different from new)
+      if (newSlotStartTime.getTime() !== oldStartTime.getTime()) {
+        await tx.availability.updateMany({
+          where: {
+            counsellorId: booking.counsellorId,
+            startTime: oldStartTime,
+          },
+          data: { isBooked: false },
+        })
+      }
+
+      // 2. Book the target availability
+      if (targetAvailabilityId) {
+        // Mode A: use the existing availability record
+        if (newSlotStartTime.getTime() !== oldStartTime.getTime()) {
+          await tx.availability.update({
+            where: { id: targetAvailabilityId },
+            data: { isBooked: true },
+          })
+        }
+      } else {
+        // Mode B: upsert availability at the custom time (create if missing)
+        const existingAvail = await tx.availability.findFirst({
+          where: {
+            counsellorId: booking.counsellorId,
+            startTime: newSlotStartTime,
+          },
+        })
+        if (existingAvail) {
+          if (existingAvail.isBooked && newSlotStartTime.getTime() !== oldStartTime.getTime()) {
+            // Shouldn't happen (we checked bookings above) but guard anyway
+            throw new Error('Availability slot already booked')
+          }
+          await tx.availability.update({
+            where: { id: existingAvail.id },
+            data: { endTime: newSlotEndTime, isBooked: true },
+          })
+          targetAvailabilityId = existingAvail.id
+        } else {
+          const created = await tx.availability.create({
+            data: {
+              counsellorId: booking.counsellorId,
+              startTime: newSlotStartTime,
+              endTime: newSlotEndTime,
+              isBooked: true,
+            },
+          })
+          targetAvailabilityId = created.id
+        }
+      }
+
+      // 3. Update the booking
+      await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          startTime: newSlotStartTime,
+          sessionDurationMinutes: Math.round((newSlotEndTime.getTime() - newSlotStartTime.getTime()) / 60000),
+        },
+      })
+    })
+
+    const oldStr = oldStartTime.toISOString()
+    const newStr = newSlotStartTime.toISOString()
+    const detail = `Slot changed from ${oldStr} → ${newStr} (availability: ${targetAvailabilityId ?? 'custom'})`
+    await writeAuditLog('EDIT_BOOKING_SLOT', 'Booking', booking.id, detail)
+
+    res.json({
+      success: true,
+      message: 'Booking slot updated successfully.',
+      newStartTime: newSlotStartTime,
+      newEndTime: newSlotEndTime,
+    })
+  } catch (e: any) {
+    // Detect Prisma unique-constraint violation (P2002) — another admin just claimed the same slot
+    if (e?.code === 'P2002') {
+      return res.status(409).json({
+        error: 'That time slot was just reserved by another admin edit. Please pick a different time and try again.',
+      })
+    }
+    return res.status(400).json({ error: e.message || 'Failed to update booking slot' })
+  }
+})
+
+// ─── Payment & Refund Register ────────────────────────────────────────────────
+
+// GET /api/admin/payments?status=&page=&pageSize=
+app.get('/api/admin/payments', requireAdmin, async (req, res) => {
+  const { status, page = '1', pageSize = '20' } = req.query as Record<string, string>
+
+  const where: any = {}
+  if (status) where.status = status
+
+  const skip = (parseInt(page) - 1) * parseInt(pageSize)
+  const take = parseInt(pageSize)
+
+  const [payments, total] = await Promise.all([
+    prisma.payment.findMany({
+      where,
+      skip,
+      take,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        booking: {
+          select: {
+            id: true, visitorName: true, visitorEmail: true, startTime: true, status: true,
+            counsellor: { select: { id: true, name: true } },
+          },
+        },
+      },
+    }),
+    prisma.payment.count({ where }),
+  ])
+
+  res.json({ payments, total, page: parseInt(page), pageSize: parseInt(pageSize) })
+})
+
+// POST /api/admin/payments/:id/refund
+app.post('/api/admin/payments/:id/refund', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const payment = await prisma.payment.findUnique({ where: { id }, include: { booking: true } })
+  if (!payment) return res.status(404).json({ error: 'Payment not found' })
+  if (payment.status !== 'SUCCESS') return res.status(400).json({ error: 'Only SUCCESS payments can be refunded' })
+  if (!payment.gatewayPaymentId) return res.status(400).json({ error: 'No gateway payment ID recorded — cannot process refund' })
+
+  try {
+    const razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID!,
+      key_secret: process.env.RAZORPAY_KEY_SECRET!,
+    })
+    await (razorpay.payments as any).refund(payment.gatewayPaymentId, {
+      amount: Number(payment.amount) * 100, // paise
+    })
+    await prisma.payment.update({ where: { id }, data: { status: 'REFUNDED' } })
+    await prisma.booking.update({ where: { id: payment.bookingId }, data: { status: 'CANCELLED' } })
+    await writeAuditLog('REFUND_PAYMENT', 'Payment', id, `Refunded ₹${payment.amount} for booking ${payment.bookingId}`)
+    res.json({ ok: true })
+  } catch (err: any) {
+    res.status(500).json({ error: 'Refund failed', detail: err?.message })
+  }
+})
+
+// ─── Static Pages CRUD ────────────────────────────────────────────────────────
+
+app.get('/api/admin/static-pages', requireAdmin, async (_req, res) => {
+  const pages = await prisma.staticPage.findMany({ orderBy: { createdAt: 'desc' } })
+  res.json(pages)
+})
+
+app.post('/api/admin/static-pages', requireAdmin, async (req, res) => {
+  const { slug, title, body } = req.body
+  if (!slug || !title || !body) return res.status(400).json({ error: 'slug, title and body are required' })
+  try {
+    const page = await prisma.staticPage.create({ data: { slug, title, body } })
+    await writeAuditLog('CREATE_STATIC_PAGE', 'StaticPage', page.id, `Created page: ${slug}`)
+    res.json(page)
+  } catch {
+    res.status(409).json({ error: 'A page with this slug already exists' })
+  }
+})
+
+app.patch('/api/admin/static-pages/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const { title, body, slug } = req.body
+  const page = await prisma.staticPage.findUnique({ where: { id } })
+  if (!page) return res.status(404).json({ error: 'Page not found' })
+
+  const updated = await prisma.staticPage.update({ where: { id }, data: { title, body, slug } })
+  await writeAuditLog('EDIT_STATIC_PAGE', 'StaticPage', id, `Edited page: ${updated.slug}`)
+  res.json(updated)
+})
+
+app.delete('/api/admin/static-pages/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const page = await prisma.staticPage.findUnique({ where: { id } })
+  if (!page) return res.status(404).json({ error: 'Page not found' })
+
+  await prisma.staticPage.delete({ where: { id } })
+  await writeAuditLog('DELETE_STATIC_PAGE', 'StaticPage', id, `Deleted page: ${page.slug}`)
+  res.json({ ok: true })
+})
+
+// ─── FAQs CRUD ────────────────────────────────────────────────────────────────
+
+app.get('/api/admin/faqs', requireAdmin, async (_req, res) => {
+  const faqs = await prisma.faq.findMany({ orderBy: { order: 'asc' } })
+  res.json(faqs)
+})
+
+app.post('/api/admin/faqs', requireAdmin, async (req, res) => {
+  const { question, answer, order } = req.body
+  if (!question || !answer) return res.status(400).json({ error: 'question and answer are required' })
+  const faq = await prisma.faq.create({ data: { question, answer, order: order ?? 0 } })
+  await writeAuditLog('CREATE_FAQ', 'Faq', faq.id, `Created FAQ: ${question.slice(0, 60)}`)
+  res.json(faq)
+})
+
+app.patch('/api/admin/faqs/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const { question, answer, order } = req.body
+  const faq = await prisma.faq.findUnique({ where: { id } })
+  if (!faq) return res.status(404).json({ error: 'FAQ not found' })
+
+  const updated = await prisma.faq.update({ where: { id }, data: { question, answer, order } })
+  await writeAuditLog('EDIT_FAQ', 'Faq', id, `Edited FAQ: ${updated.question.slice(0, 60)}`)
+  res.json(updated)
+})
+
+app.delete('/api/admin/faqs/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const faq = await prisma.faq.findUnique({ where: { id } })
+  if (!faq) return res.status(404).json({ error: 'FAQ not found' })
+
+  await prisma.faq.delete({ where: { id } })
+  await writeAuditLog('DELETE_FAQ', 'Faq', id, `Deleted FAQ: ${faq.question.slice(0, 60)}`)
+  res.json({ ok: true })
+})
+
+// ─── Dashboard Reporting ──────────────────────────────────────────────────────
+
+// GET /api/admin/reports/summary?from=&to=
+app.get('/api/admin/reports/summary', requireAdmin, async (req, res) => {
+  const { from, to } = req.query as { from?: string; to?: string }
+  const dateFilter: any = {}
+  if (from) dateFilter.gte = new Date(from)
+  if (to) dateFilter.lte = new Date(to)
+  const where = Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}
+
+  const [totalBookings, confirmedBookings, cancelledBookings, completedBookings, paymentsSuccess] = await Promise.all([
+    prisma.booking.count({ where }),
+    prisma.booking.count({ where: { ...where, status: 'CONFIRMED' } }),
+    prisma.booking.count({ where: { ...where, status: 'CANCELLED' } }),
+    prisma.booking.count({ where: { ...where, status: 'COMPLETED' } }),
+    prisma.payment.findMany({
+      where: { status: 'SUCCESS', ...(Object.keys(dateFilter).length > 0 ? { createdAt: dateFilter } : {}) },
+      select: { amount: true },
+    }),
+  ])
+
+  const revenue = paymentsSuccess.reduce((sum, p) => sum + Number(p.amount), 0)
+  const noShows = completedBookings // approximation — sessions completed but visitor attended
+
+  res.json({
+    totalBookings,
+    confirmed: confirmedBookings,
+    cancellations: cancelledBookings,
+    completed: completedBookings,
+    noShows: 0, // requires explicit no-show flag — placeholder
+    revenue,
+    from: from || null,
+    to: to || null,
+  })
+})
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+// GET /api/admin/audit-log?search=&page=&pageSize=
+app.get('/api/admin/audit-log', requireAdmin, async (req, res) => {
+  const { search, page = '1', pageSize = '50' } = req.query as Record<string, string>
+  const skip = (parseInt(page) - 1) * parseInt(pageSize)
+  const take = parseInt(pageSize)
+
+  const where: any = search
+    ? { OR: [{ action: { contains: search, mode: 'insensitive' } }, { detail: { contains: search, mode: 'insensitive' } }, { targetType: { contains: search, mode: 'insensitive' } }] }
+    : {}
+
+  const [logs, total] = await Promise.all([
+    prisma.auditLog.findMany({ where, skip, take, orderBy: { createdAt: 'desc' } }),
+    prisma.auditLog.count({ where }),
+  ])
+
+  res.json({ logs, total, page: parseInt(page), pageSize: parseInt(pageSize) })
+})
