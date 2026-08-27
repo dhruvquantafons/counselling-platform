@@ -3,6 +3,8 @@
 import { Suspense, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import PushNotificationToggle from "@/app/components/PushNotificationToggle";
+import NotificationFeed from "@/app/components/NotificationFeed";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -24,6 +26,53 @@ type AvailableSlot = {
   period: string;
 };
 
+type WindowState = "JOINABLE" | "FUTURE" | "ENDED";
+
+function formatDuration(ms: number): string {
+  if (ms <= 0) return "00:00";
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
+function formatDateShort(iso: string | Date): string {
+  try {
+    const d = typeof iso === "string" ? new Date(iso) : iso;
+    return d.toLocaleString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  } catch {
+    return String(iso);
+  }
+}
+
+function getSessionWindowState(startTimeIso: string): {
+  state: WindowState;
+  msUntilOpen: number;
+  msAgoEnded: number;
+  sessionEndsAt: Date;
+  earlyEntryAt: Date;
+} {
+  const SESSION_MIN = 50;
+  const EARLY_MIN = 5;
+  const start = new Date(startTimeIso).getTime();
+  const now = Date.now();
+  const earlyEntryAt = new Date(start - EARLY_MIN * 60_000);
+  const sessionEndsAt = new Date(start + SESSION_MIN * 60_000);
+  const msUntilOpen = earlyEntryAt.getTime() - now;
+  const msAgoEnded = now - sessionEndsAt.getTime();
+  if (now > sessionEndsAt.getTime()) return { state: "ENDED", msUntilOpen, msAgoEnded, sessionEndsAt, earlyEntryAt };
+  if (now < earlyEntryAt.getTime()) return { state: "FUTURE", msUntilOpen, msAgoEnded, sessionEndsAt, earlyEntryAt };
+  return { state: "JOINABLE", msUntilOpen, msAgoEnded, sessionEndsAt, earlyEntryAt };
+}
+
 function BookingManageInner() {
   const searchParams = useSearchParams();
   const bookingId = searchParams.get("bookingId") || searchParams.get("id");
@@ -39,6 +88,13 @@ function BookingManageInner() {
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
+  // ──────── Phase 5.1: 30s live tick so the Join gate auto-flips while page is open ────────
+  const [, setManageTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setManageTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   const fetchBooking = useCallback(() => {
     if (!bookingId) return;
     setLoading(true);
@@ -47,6 +103,10 @@ function BookingManageInner() {
       .then((data) => {
         if (data.error) throw new Error(data.error);
         setBooking(data);
+        if (typeof window !== "undefined") {
+          if (data.id) localStorage.setItem("visitorBookingId", data.id);
+          if (data.visitorEmail) localStorage.setItem("visitorEmail", data.visitorEmail);
+        }
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Booking not found"))
       .finally(() => setLoading(false));
@@ -171,6 +231,22 @@ function BookingManageInner() {
   const hoursUntilSession = (dt.getTime() - Date.now()) / (1000 * 60 * 60);
   const isWithinPolicy = hoursUntilSession >= 24;
 
+  // ──────── Phase 5.1: time-window gate for Join Video Room button ────────
+  const win = getSessionWindowState(booking.startTime);
+  const joinable = booking.status === "CONFIRMED" && win.state === "JOINABLE";
+  let joinLabel = "Join Video Room";
+  let joinTooltip = "";
+  if (booking.status !== "CONFIRMED") {
+    joinLabel = "Confirm session first";
+    joinTooltip = `This booking is ${booking.status.toLowerCase()}. Video room unlocks once the session is confirmed with a time slot.`;
+  } else if (win.state === "FUTURE") {
+    joinLabel = "Room not open yet";
+    joinTooltip = `Opens 5 minutes before scheduled time · ${formatDateShort(win.earlyEntryAt)} (in ${formatDuration(win.msUntilOpen)})`;
+  } else if (win.state === "ENDED") {
+    joinLabel = "Session ended";
+    joinTooltip = `Concluded ${formatDateShort(win.sessionEndsAt)}`;
+  }
+
   return (
     <main className="max-w-2xl mx-auto px-6 py-12 animate-fade-in">
       <div className="mb-6 flex items-center justify-between">
@@ -207,6 +283,11 @@ function BookingManageInner() {
         </div>
       )}
 
+      {/* Push Notification Opt-in Banner */}
+      <div className="mb-6">
+        <PushNotificationToggle bookingId={booking.id} />
+      </div>
+
       {/* Main Details Card */}
       <div className="bg-white rounded-3xl border border-sage/15 p-6 shadow-soft space-y-6">
         <div className="grid sm:grid-cols-2 gap-4 pb-6 border-b border-sage/10 text-sm">
@@ -238,17 +319,31 @@ function BookingManageInner() {
 
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-3 pt-2">
-          {/* Join Session */}
+          {/* Join Session ── Phase 5.1: time-window gated ── */}
           {booking.status === "CONFIRMED" && (
-            <Link
-              href={`/session?bookingId=${booking.id}`}
-              className="bg-sage text-white px-5 py-2.5 rounded-full text-xs font-medium hover:bg-sage-dark transition-colors flex items-center gap-1.5"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
-              </svg>
-              Join Video Room
-            </Link>
+            joinable ? (
+              <Link
+                href={`/session?bookingId=${booking.id}`}
+                className="bg-sage text-white px-5 py-2.5 rounded-full text-xs font-medium hover:bg-sage-dark transition-colors flex items-center gap-1.5 active:scale-[0.98]"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+                {joinLabel}
+              </Link>
+            ) : (
+              <div
+                role="link"
+                aria-disabled="true"
+                title={joinTooltip}
+                className="bg-ink/5 text-ink/40 px-5 py-2.5 rounded-full text-xs font-medium flex items-center gap-1.5 cursor-not-allowed ring-1 ring-ink/5 select-none"
+              >
+                <svg className="w-3.5 h-3.5 text-ink/30" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+                {joinLabel}
+              </div>
+            )
           )}
 
           {/* View/Download PDF Receipt */}

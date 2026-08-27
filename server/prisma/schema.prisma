@@ -35,19 +35,21 @@ model Availability {
 }
 
 model Booking {
-  id             String     @id @default(uuid())
-  counsellorId   String
-  counsellor     Counsellor @relation(fields: [counsellorId], references: [id])
-  visitorName    String
-  visitorEmail   String
-  visitorPhone   String
-  startTime      DateTime
-  status         BookingStatus @default(PENDING)
-  createdAt      DateTime   @default(now())
+  id                   String     @id @default(uuid())
+  counsellorId         String
+  counsellor           Counsellor @relation(fields: [counsellorId], references: [id])
+  visitorName          String
+  visitorEmail         String
+  visitorPhone         String
+  startTime            DateTime
+  status               BookingStatus @default(PENDING)
+  roomId               String?    @unique
+  sessionDurationMinutes Int      @default(50)
+  createdAt            DateTime   @default(now())
 
-  payment        Payment?
-
-  @@unique([counsellorId, startTime]) // enforced again here at booking level
+  payment              Payment?
+  notifications        Notification[]
+  pushSubscriptions    PushSubscription[]
 }
 
 enum BookingStatus {
@@ -73,4 +75,56 @@ enum PaymentStatus {
   SUCCESS
   FAILED
   REFUNDED
+}
+
+model Notification {
+  id           String              @id @default(uuid())
+  bookingId    String
+  booking      Booking             @relation(fields: [bookingId], references: [id])
+  type         NotificationType
+  channel      NotificationChannel
+  scheduledFor DateTime
+  status       NotificationStatus  @default(PENDING)
+  isRead       Boolean             @default(false)
+  readAt       DateTime?
+  sentAt       DateTime?
+  error        String?
+  createdAt    DateTime            @default(now())
+
+  @@index([status, scheduledFor])
+  @@index([bookingId, channel])
+}
+
+enum NotificationType {
+  PAYMENT_RECEIPT
+  BOOKING_CONFIRMATION
+  REMINDER_24H
+  REMINDER_1H
+  REMINDER_10MIN
+  RESCHEDULE
+  CANCELLATION
+  REFUND
+}
+
+enum NotificationChannel {
+  EMAIL
+  PUSH
+  IN_APP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
 }

@@ -5,10 +5,35 @@ import { PrismaPg } from '@prisma/adapter-pg'
 import 'dotenv/config'
 import Razorpay from 'razorpay'
 import crypto from 'crypto'
+import jwt from 'jsonwebtoken'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import cron from 'node-cron'
 import { generateReceiptHtml, generateReceiptNumber } from './receipt.js'
+import { processPendingNotifications } from './notificationWorker.js'
+import { getVapidPublicKey } from './pushService.js'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
+
+// ─── JaaS (8x8.vc) credentials + signing key loaded once at startup (Step 2.4) ───
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const JAAS_PRIVATE_KEY_PATH = path.join(__dirname, 'jaas-private-key.pem')
+let JAAS_PRIVATE_KEY: string | null = null
+try {
+  JAAS_PRIVATE_KEY = fs.readFileSync(JAAS_PRIVATE_KEY_PATH, 'utf8')
+  console.log('[jaas] ✅ Private key loaded from jaas-private-key.pem')
+} catch (err) {
+  console.warn('[jaas] ⚠️  WARNING: Could not load jaas-private-key.pem. /join-token will return 500.')
+  if (err instanceof Error) console.warn('[jaas]   →', err.message)
+}
+const JITSI_APP_ID = process.env.JITSI_APP_ID || ''
+const JITSI_KEY_ID = process.env.JITSI_KEY_ID || ''
+const JITSI_DOMAIN = process.env.JITSI_DOMAIN || '8x8.vc'
+if (!JITSI_APP_ID || !JITSI_KEY_ID) {
+  console.warn('[jaas] ⚠️  WARNING: JITSI_APP_ID and/or JITSI_KEY_ID missing in server/.env. /join-token will return 500.')
+}
 
 const app = express()
 app.use(cors())
@@ -20,11 +45,9 @@ app.use((req, res, next) => {
   }
 })
 
-// In-memory slot hold store for 10-minute temporary holds
 // Key: slotId -> { heldUntil: timestamp (ms), bookingId: string }
 const slotHoldsStore: Record<string, { heldUntil: number; bookingId: string }> = {}
 
-// Helper: check if a slot is currently held and hold is active (< 10 mins)
 function isSlotHeld(slotId: string): boolean {
   const hold = slotHoldsStore[slotId]
   if (!hold) return false
@@ -34,6 +57,61 @@ function isSlotHeld(slotId: string): boolean {
   }
   return true
 }
+
+// ─── Video Session Window Helpers ────────────────────────────────────────────
+
+export type SessionAccessState =
+  | 'UNCONFIRMED'   // PENDING / CANCELLED booking — no room exists
+  | 'NOT_STARTED'   // confirmed but not yet within 5-min early-entry window
+  | 'OPEN_EARLY'    // within 5 min before start (entry allowed)
+  | 'IN_SESSION'    // between startTime and endTime
+  | 'ENDED'         // past endTime — access revoked
+
+export interface SessionWindowInfo {
+  state: SessionAccessState
+  earlyEntryAt: Date
+  sessionEndsAt: Date
+  msUntilEntry: number   // 0 if room is currently joinable
+  msUntilEnd: number     // 0 if session is not active / ended
+}
+
+/**
+ * Pure function: given booking startTime + sessionDurationMinutes, compute
+ * where we are in the session lifecycle and the key boundary timestamps.
+ * Entry is permitted from 5 minutes before startTime until sessionEndsAt.
+ */
+export function getSessionAccessState(
+  startTime: Date,
+  sessionDurationMinutes: number,
+  now: Date = new Date(),
+): SessionWindowInfo {
+  const earlyEntryAt = new Date(startTime.getTime() - 5 * 60 * 1000)
+  const sessionEndsAt = new Date(startTime.getTime() + sessionDurationMinutes * 60 * 1000)
+  const nowMs = now.getTime()
+
+  let state: SessionAccessState
+  if (nowMs < earlyEntryAt.getTime()) {
+    state = 'NOT_STARTED'
+  } else if (nowMs < startTime.getTime()) {
+    state = 'OPEN_EARLY'
+  } else if (nowMs < sessionEndsAt.getTime()) {
+    state = 'IN_SESSION'
+  } else {
+    state = 'ENDED'
+  }
+
+  const msUntilEntry = Math.max(0, earlyEntryAt.getTime() - nowMs)
+  const msUntilEnd = Math.max(0, sessionEndsAt.getTime() - nowMs)
+
+  return { state, earlyEntryAt, sessionEndsAt, msUntilEntry, msUntilEnd }
+}
+
+/** True if the booking is currently in a joinable window (OPEN_EARLY / IN_SESSION). */
+export function isSessionJoinable(window: SessionWindowInfo): boolean {
+  return window.state === 'OPEN_EARLY' || window.state === 'IN_SESSION'
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 // GET all counsellors (directory)
 app.get('/api/counsellors', async (req, res) => {
@@ -113,16 +191,16 @@ app.get('/api/counsellors/:id/availability', async (req, res) => {
   const result = availableSlots.map(slot => {
     const hour = parseInt(hourFmt.format(slot.startTime), 10)
     let period: 'Morning' | 'Afternoon' | 'Evening'
-    if (hour >= 5 && hour < 12)       period = 'Morning'
+    if (hour >= 5 && hour < 12) period = 'Morning'
     else if (hour >= 12 && hour < 17) period = 'Afternoon'
-    else                              period = 'Evening'
+    else period = 'Evening'
 
     return {
       id: slot.id,
       startTimeUtc: slot.startTime.toISOString(),
-      endTimeUtc:   slot.endTime.toISOString(),
-      date:         dateFmt.format(slot.startTime),
-      time:         timeFmt.format(slot.startTime).toUpperCase().replace('\u202F', ' '),
+      endTimeUtc: slot.endTime.toISOString(),
+      date: dateFmt.format(slot.startTime),
+      time: timeFmt.format(slot.startTime).toUpperCase().replace('\u202F', ' '),
       period,
     }
   })
@@ -176,11 +254,220 @@ app.get('/api/bookings/:bookingId', async (req, res) => {
 
   res.json({
     id: booking.id,
-    counsellorId:   booking.counsellorId,
+    counsellorId: booking.counsellorId,
     counsellorName: booking.counsellor.name,
-    visitorName:    booking.visitorName,
-    status:         booking.status,
+    visitorName: booking.visitorName,
+    status: booking.status,
   })
+})
+
+// GET /api/bookings/:bookingId/session-info
+// Public (gated by bookingId knowledge). Returns session lifecycle state,
+// room identifier (only if confirmed), and countdown timestamps.
+app.get('/api/bookings/:bookingId/session-info', async (req, res) => {
+  const { bookingId } = req.params
+
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: {
+      counsellor: { select: { id: true, name: true, email: true, specialisation: true } },
+    },
+  })
+  if (!booking) return res.status(404).json({ error: 'Booking not found' })
+
+  // Booking doesn't have a real scheduled slot yet (or was cancelled)
+  if (booking.status === 'PENDING' || booking.status === 'CANCELLED') {
+    return res.json({
+      bookingId: booking.id,
+      status: booking.status,
+      accessState: 'UNCONFIRMED' as const,
+      counsellorId: booking.counsellor.id,
+      counsellorName: booking.counsellor.name,
+      visitorName: booking.visitorName,
+    })
+  }
+
+  // CONFIRMED or COMPLETED — we have a real startTime + duration
+  const window = getSessionAccessState(booking.startTime, booking.sessionDurationMinutes)
+
+  // Only expose roomId once a session is confirmed (prevents leaking UUIDs for cancelled etc.)
+  const confirmed = booking.status === 'CONFIRMED' || booking.status === 'COMPLETED'
+
+  return res.json({
+    bookingId: booking.id,
+    status: booking.status,
+    accessState: window.state,
+    roomId: confirmed ? booking.roomId : null,
+    counsellorId: booking.counsellor.id,
+    counsellorName: booking.counsellor.name,
+    counsellorEmail: booking.counsellor.email,
+    counsellorSpecialisation: booking.counsellor.specialisation,
+    visitorName: booking.visitorName,
+    visitorEmail: booking.visitorEmail,
+    startTime: booking.startTime.toISOString(),
+    sessionDurationMinutes: booking.sessionDurationMinutes,
+    earlyEntryAt: window.earlyEntryAt.toISOString(),
+    sessionEndsAt: window.sessionEndsAt.toISOString(),
+    msUntilEntry: window.msUntilEntry,
+    msUntilEnd: window.msUntilEnd,
+    isJoinable: isSessionJoinable(window),
+  })
+})
+
+// GET /api/bookings/:bookingId/join-token
+// Enforces all access rules and returns a placeholder payload that will
+// become a real signed Jitsi JWT once Jitsi env vars are in place (Step 2.4).
+//
+// Query params:
+//   role: 'visitor' | 'counsellor' — required
+//   counsellorId: string — required when role === 'counsellor' (matches
+//     existing counsellor-token pattern of passing UUID via query string)
+//
+// Response when all guards pass (placeholder, will be replaced with real JWT):
+//   { placeholder: true, roomId, role, user: { id, name, email, moderator },
+//     validUntil, sessionEndsAt }
+app.get('/api/bookings/:bookingId/join-token', async (req, res) => {
+  const { bookingId } = req.params
+  const role = req.query.role as string | undefined
+  const counsellorIdFromQuery = req.query.counsellorId as string | undefined
+
+  // ── Guard 0: Validate role param ────────────────────────────────────────
+  if (role !== 'visitor' && role !== 'counsellor') {
+    return res.status(400).json({
+      error: 'Invalid role',
+      detail: "Query param 'role' must be either 'visitor' or 'counsellor'",
+    })
+  }
+
+  // ── Guard 1: Booking exists ─────────────────────────────────────────────
+  const booking = await prisma.booking.findUnique({
+    where: { id: bookingId },
+    include: { counsellor: { select: { id: true, name: true, email: true } } },
+  })
+  if (!booking) return res.status(404).json({ error: 'Booking not found' })
+
+  // ── Guard 2: Booking is confirmed (not pending / cancelled) ─────────────
+  if (booking.status !== 'CONFIRMED' && booking.status !== 'COMPLETED') {
+    return res.status(400).json({
+      error: 'Booking not confirmed',
+      bookingStatus: booking.status,
+    })
+  }
+
+  // ── Guard 3: Room identifier is present (sanity check) ──────────────────
+  if (!booking.roomId) {
+    return res.status(500).json({
+      error: 'Room not initialised for this booking',
+      detail: 'Contact support — no roomId assigned despite CONFIRMED status.',
+    })
+  }
+
+  // ── Guard 4: Role check ─────────────────────────────────────────────────
+  type ResolvedRole = 'visitor' | 'counsellor'
+  let resolvedRole: ResolvedRole
+  let userId: string
+  let userName: string
+  let userEmail: string
+  let isModerator: boolean
+
+  if (role === 'counsellor') {
+    if (!counsellorIdFromQuery) {
+      return res.status(400).json({
+        error: 'counsellorId is required',
+        detail: "Query param 'counsellorId' is required when role='counsellor'",
+      })
+    }
+    if (counsellorIdFromQuery !== booking.counsellor.id) {
+      return res.status(403).json({
+        error: 'Not the assigned counsellor',
+        detail: 'Only the counsellor assigned to this booking may join with counsellor privileges.',
+      })
+    }
+    resolvedRole = 'counsellor'
+    userId = `counsellor_${booking.counsellor.id}`
+    userName = booking.counsellor.name
+    userEmail = booking.counsellor.email
+    isModerator = true
+  } else {
+    // 'visitor' — identity is established by possession of bookingId (matches
+    // existing platform pattern — visitors have no accounts / JWT).
+    resolvedRole = 'visitor'
+    userId = `visitor_${booking.id}`
+    userName = booking.visitorName
+    userEmail = booking.visitorEmail
+    isModerator = false
+  }
+
+  // ── Guard 5: Time-window check (5-min early entry, revoke after end) ────
+  const window = getSessionAccessState(booking.startTime, booking.sessionDurationMinutes)
+
+  if (window.state === 'NOT_STARTED') {
+    return res.status(403).json({
+      error: 'Room not yet open',
+      detail: 'Entry is permitted starting 5 minutes before the scheduled session time.',
+      opensAt: window.earlyEntryAt.toISOString(),
+      msUntilOpen: window.msUntilEntry,
+    })
+  }
+  if (window.state === 'ENDED') {
+    return res.status(403).json({
+      error: 'Session has ended',
+      detail: 'Access to this session has been revoked because the session window has closed.',
+      endedAt: window.sessionEndsAt.toISOString(),
+    })
+  }
+  // state is now either OPEN_EARLY or IN_SESSION → join allowed
+
+  // ── All guards passed → sign a real RS256 JWT for JaaS / 8x8.vc (Step 2.4) ──
+  if (!JAAS_PRIVATE_KEY || !JITSI_APP_ID || !JITSI_KEY_ID) {
+    return res.status(500).json({
+      error: 'JaaS signing not configured on server',
+      detail: 'Missing jaas-private-key.pem, JITSI_APP_ID, or JITSI_KEY_ID.',
+    })
+  }
+
+  const TOKEN_TTL_SEC = 2 * 60 // 2 minutes — short-lived per spec
+  const now = Math.floor(Date.now() / 1000)
+
+  const signedUser = {
+    id: userId,
+    name: userName,
+    email: userEmail,
+    moderator: isModerator, // true ONLY when role === 'counsellor'
+  }
+
+  const claims: object = {
+    aud: 'jitsi',
+    iss: JITSI_APP_ID,
+    sub: JITSI_APP_ID,
+    room: booking.roomId,
+    context: {
+      user: signedUser,
+    },
+    nbf: now - 10, // small 10s leeway for clock drift
+    exp: now + TOKEN_TTL_SEC,
+  }
+
+  try {
+    const token = jwt.sign(claims, JAAS_PRIVATE_KEY, {
+      algorithm: 'RS256',
+      keyid: JITSI_KEY_ID, // critical: 8x8.vc JWKS lookup matches this kid
+    })
+
+    const tokenValidUntil = new Date((now + TOKEN_TTL_SEC) * 1000)
+    return res.json({
+      token,
+      roomId: booking.roomId,
+      domain: JITSI_DOMAIN, // '8x8.vc' — client mounts iframe from this domain
+      role: resolvedRole,
+      user: signedUser,
+      sessionEndsAt: window.sessionEndsAt.toISOString(),
+      tokenValidUntil: tokenValidUntil.toISOString(),
+    })
+  } catch (err) {
+    console.error('[jaas] jwt.sign() failed for booking', bookingId, err)
+    return res.status(500).json({ error: 'Failed to issue session token' })
+  }
 })
 
 // PATCH /api/bookings/:bookingId/slot
@@ -199,25 +486,72 @@ app.patch('/api/bookings/:bookingId/slot', async (req, res) => {
   const booking = await prisma.booking.findUnique({ where: { id: bookingId }, include: { payment: true } })
   if (!booking) return res.status(404).json({ error: 'Booking not found' })
 
-  // Atomic: mark slot booked + update booking's real startTime and status to CONFIRMED
+  // Atomic: mark slot booked + update booking's real startTime, status, and generate roomId
+  const generatedRoomId = `room_${crypto.randomUUID().replace(/-/g, '')}`
+  const now = new Date()
+  const startTime = new Date(availability.startTime)
+
+  const notificationsToCreate: Array<{
+    bookingId: string
+    type: 'BOOKING_CONFIRMATION' | 'REMINDER_24H' | 'REMINDER_1H' | 'REMINDER_10MIN'
+    channel: 'EMAIL' | 'PUSH' | 'IN_APP'
+    scheduledFor: Date
+  }> = [
+    { bookingId, type: 'BOOKING_CONFIRMATION', channel: 'EMAIL', scheduledFor: now },
+    { bookingId, type: 'BOOKING_CONFIRMATION', channel: 'PUSH', scheduledFor: now },
+    { bookingId, type: 'BOOKING_CONFIRMATION', channel: 'IN_APP', scheduledFor: now },
+  ]
+
+  const time24h = new Date(startTime.getTime() - 24 * 60 * 60 * 1000)
+  const time1h = new Date(startTime.getTime() - 60 * 60 * 1000)
+  const time10m = new Date(startTime.getTime() - 10 * 60 * 1000)
+
+  if (time24h > now) {
+    notificationsToCreate.push(
+      { bookingId, type: 'REMINDER_24H', channel: 'EMAIL', scheduledFor: time24h },
+      { bookingId, type: 'REMINDER_24H', channel: 'PUSH', scheduledFor: time24h },
+      { bookingId, type: 'REMINDER_24H', channel: 'IN_APP', scheduledFor: time24h }
+    )
+  }
+  if (time1h > now) {
+    notificationsToCreate.push(
+      { bookingId, type: 'REMINDER_1H', channel: 'EMAIL', scheduledFor: time1h },
+      { bookingId, type: 'REMINDER_1H', channel: 'PUSH', scheduledFor: time1h },
+      { bookingId, type: 'REMINDER_1H', channel: 'IN_APP', scheduledFor: time1h }
+    )
+  }
+  if (time10m > now) {
+    notificationsToCreate.push(
+      { bookingId, type: 'REMINDER_10MIN', channel: 'EMAIL', scheduledFor: time10m },
+      { bookingId, type: 'REMINDER_10MIN', channel: 'PUSH', scheduledFor: time10m },
+      { bookingId, type: 'REMINDER_10MIN', channel: 'IN_APP', scheduledFor: time10m }
+    )
+  }
+
   await prisma.$transaction([
     prisma.availability.update({
       where: { id: availabilityId },
-      data:  { isBooked: true },
+      data: { isBooked: true },
     }),
     prisma.booking.update({
       where: { id: bookingId },
-      data:  { startTime: availability.startTime, status: 'CONFIRMED' },
+      data: { startTime: availability.startTime, status: 'CONFIRMED', roomId: generatedRoomId, sessionDurationMinutes: 50 },
     }),
     ...(booking.payment && booking.payment.status === 'INITIATED' ? [
       prisma.payment.update({
         where: { id: booking.payment.id },
         data: { status: 'SUCCESS' },
       })
-    ] : [])
+    ] : []),
+    prisma.notification.createMany({
+      data: notificationsToCreate,
+    }),
   ])
 
-  res.json({ ok: true, startTime: availability.startTime, status: 'CONFIRMED' })
+  // Process immediate notifications right away
+  processPendingNotifications(prisma).catch(() => {})
+
+  res.json({ ok: true, startTime: availability.startTime, status: 'CONFIRMED', roomId: generatedRoomId })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -229,55 +563,49 @@ const razorpay = new Razorpay({
 
 // Step A: Create order (called when visitor clicks "Proceed to Pay")
 app.post('/api/payments/create-order', async (req, res) => {
-  const { counsellorId, name, email, phone } = req.body
+  try {
+    const { counsellorId, name, email, phone } = req.body
 
-  const counsellor = await prisma.counsellor.findUnique({ where: { id: counsellorId } })
-  if (!counsellor) return res.status(404).json({ error: 'Counsellor not found' })
+    const counsellor = await prisma.counsellor.findUnique({ where: { id: counsellorId } })
+    if (!counsellor) return res.status(404).json({ error: 'Counsellor not found' })
 
-  const order = await razorpay.orders.create({
-    amount: Number(counsellor.fee) * 100, // Razorpay expects paise
-    currency: 'INR',
-    receipt: `receipt_${Date.now()}`,
-  })
+    const order = await razorpay.orders.create({
+      amount: Number(counsellor.fee) * 100, // Razorpay expects paise
+      currency: 'INR',
+      receipt: `receipt_${Date.now()}`,
+    })
 
-  // Store a PENDING booking + payment, not yet confirmed
-  const booking = await prisma.booking.create({
-    data: {
-      counsellorId,
-      visitorName: name,
-      visitorEmail: email,
-      visitorPhone: phone,
-      startTime: new Date(), // placeholder — real slot selection happens after payment (T-008+)
-      status: 'PENDING',
-      payment: {
-        create: {
-          amount: counsellor.fee,
-          status: 'INITIATED',
-          gatewayOrderId: order.id,
+    // Store a PENDING booking + payment, not yet confirmed
+    const booking = await prisma.booking.create({
+      data: {
+        counsellorId,
+        visitorName: name,
+        visitorEmail: email,
+        visitorPhone: phone,
+        // Unique placeholder startTime to avoid (counsellorId, startTime) collision for PENDING bookings
+        startTime: new Date(Date.now() + Math.floor(Math.random() * 1000000000) + Math.floor(Math.random() * 1000000)),
+        status: 'PENDING',
+        payment: {
+          create: {
+            amount: counsellor.fee,
+            status: 'INITIATED',
+            gatewayOrderId: order.id,
+          },
         },
       },
-    },
-  })
+    })
 
-  res.json({ orderId: order.id, amount: order.amount, keyId: process.env.RAZORPAY_KEY_ID, bookingId: booking.id })
+    res.json({ orderId: order.id, amount: order.amount, keyId: process.env.RAZORPAY_KEY_ID, bookingId: booking.id })
+  } catch (err: any) {
+    console.error('[create-order] Error:', err)
+    res.status(500).json({ error: err.message || 'Failed to create payment order' })
+  }
 })
-
-// In-memory store for payment methods (e.g. Card, UPI, Netbanking, Wallet)
-const paymentMethodsStore: Record<string, string> = {}
 
 // Step A2: Client payment verification (called when Razorpay modal handler fires on client)
 app.post('/api/payments/verify', async (req, res) => {
-  const { orderId, paymentId, signature, bookingId, method } = req.body
+  const { orderId, paymentId, signature, bookingId } = req.body
   if (!bookingId) return res.status(400).json({ error: 'bookingId is required' })
-
-  if (method) {
-    const m = String(method).toLowerCase()
-    if (m.includes('upi')) paymentMethodsStore[bookingId] = 'UPI'
-    else if (m.includes('wallet')) paymentMethodsStore[bookingId] = 'Wallet'
-    else if (m.includes('netbank')) paymentMethodsStore[bookingId] = 'Netbanking'
-    else if (m.includes('card')) paymentMethodsStore[bookingId] = 'Card'
-    else paymentMethodsStore[bookingId] = method
-  }
 
   // Verify HMAC signature if provided
   if (orderId && paymentId && signature) {
@@ -307,6 +635,17 @@ app.post('/api/payments/verify', async (req, res) => {
     where: { id: bookingId },
     data: { status: 'CONFIRMED' },
   })
+
+  // Queue PAYMENT_RECEIPT notification (EMAIL + IN_APP)
+  const now = new Date()
+  await prisma.notification.createMany({
+    data: [
+      { bookingId, type: 'PAYMENT_RECEIPT', channel: 'EMAIL', scheduledFor: now },
+      { bookingId, type: 'PAYMENT_RECEIPT', channel: 'IN_APP', scheduledFor: now },
+    ],
+  }).catch(() => {})
+
+  processPendingNotifications(prisma).catch(() => {})
 
   res.json({ success: true, bookingId, status: 'CONFIRMED' })
 })
@@ -691,47 +1030,16 @@ app.get('/api/counsellor/earnings', async (req, res) => {
         upcomingCount++
       }
 
-      // Get accurate payment method (UPI, Wallet, Netbanking, Card)
-      let paymentMode = paymentMethodsStore[b.id]
-      if (!paymentMode) {
-        const nameLower = b.visitorName.toLowerCase()
-        if (nameLower.includes('upi')) {
-          paymentMode = 'UPI'
-        } else if (nameLower.includes('wallet')) {
-          paymentMode = 'Wallet'
-        } else if (nameLower.includes('netbank')) {
-          paymentMode = 'Netbanking'
-        } else if (nameLower.includes('card') || nameLower.includes('supa')) {
-          paymentMode = 'Card'
-        } else {
-          // Fallback based on ID hash
-          const modes = ['UPI', 'Card', 'Netbanking', 'Wallet']
-          paymentMode = modes[b.id.charCodeAt(0) % modes.length]
-        }
-      }
-
       breakdown.push({
         id: b.id,
         visitorName: b.visitorName,
-        visitorEmail: b.visitorEmail,
-        visitorPhone: b.visitorPhone,
         date: new Date(b.startTime).toLocaleDateString('en-IN', {
           day: 'numeric',
           month: 'short',
           year: 'numeric',
         }),
-        time: new Date(b.startTime).toLocaleTimeString('en-IN', {
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-        }),
         amount,
         status: b.status,
-        paymentMode,
-        paymentId: b.payment ? (b.payment.gatewayPaymentId || b.payment.id) : `PAY-${b.id.slice(0, 8)}`,
-        startTime: b.startTime.toISOString(),
-        createdAt: b.createdAt.toISOString(),
-        receiptUrl: `/api/bookings/${b.id}/receipt`,
       })
     }
   }
@@ -787,7 +1095,7 @@ app.post('/api/bookings/:id/cancel', async (req, res) => {
 
   const booking = await prisma.booking.findUnique({
     where: { id },
-    include: { counsellor: true },
+    include: { counsellor: true, payment: true },
   })
 
   if (!booking) return res.status(404).json({ error: 'Booking not found' })
@@ -804,7 +1112,20 @@ app.post('/api/bookings/:id/cancel', async (req, res) => {
     })
   }
 
-  // Cancel booking and unbook slot if available
+  // Trigger Razorpay API automatic refund if payment exists
+  let refundId: string | null = null
+  if (booking.payment && booking.payment.gatewayPaymentId) {
+    try {
+      const refund = await razorpay.payments.refund(booking.payment.gatewayPaymentId, {
+        amount: Number(booking.payment.amount) * 100, // paise
+      })
+      refundId = refund.id
+    } catch (refundErr: any) {
+      console.warn('[cancel] Razorpay automatic refund warning:', refundErr.message)
+    }
+  }
+
+  // Cancel booking, release slot, update payment to REFUNDED, cancel pending reminders
   await prisma.$transaction([
     prisma.booking.update({
       where: { id },
@@ -817,13 +1138,39 @@ app.post('/api/bookings/:id/cancel', async (req, res) => {
       },
       data: { isBooked: false },
     }),
+    ...(booking.payment ? [
+      prisma.payment.update({
+        where: { id: booking.payment.id },
+        data: { status: 'REFUNDED' },
+      })
+    ] : []),
+    prisma.notification.updateMany({
+      where: { bookingId: id, status: 'PENDING' },
+      data: { status: 'CANCELLED' },
+    }),
   ])
+
+  // Queue Cancellation and Refund notifications
+  const now = new Date()
+  await prisma.notification.createMany({
+    data: [
+      { bookingId: id, type: 'CANCELLATION', channel: 'EMAIL', scheduledFor: now },
+      { bookingId: id, type: 'CANCELLATION', channel: 'PUSH', scheduledFor: now },
+      { bookingId: id, type: 'CANCELLATION', channel: 'IN_APP', scheduledFor: now },
+      { bookingId: id, type: 'REFUND', channel: 'EMAIL', scheduledFor: now },
+      { bookingId: id, type: 'REFUND', channel: 'PUSH', scheduledFor: now },
+      { bookingId: id, type: 'REFUND', channel: 'IN_APP', scheduledFor: now },
+    ],
+  }).catch(() => {})
+
+  processPendingNotifications(prisma).catch(() => {})
 
   res.json({
     success: true,
-    message: 'Booking cancelled successfully. Slot released.',
+    message: 'Booking cancelled successfully. Refund initiated & slot released.',
     bookingId: id,
     status: 'CANCELLED',
+    refundId,
   })
 })
 
@@ -870,13 +1217,362 @@ app.post('/api/bookings/:id/reschedule', async (req, res) => {
       where: { id },
       data: { startTime: newSlot.startTime },
     }),
+    prisma.notification.updateMany({
+      where: { bookingId: id, status: 'PENDING' },
+      data: { status: 'CANCELLED' },
+    }),
   ])
+
+  // Queue RESCHEDULE notification and recalculate new REMINDER_* times
+  const newStartTime = new Date(newSlot.startTime)
+
+  const notificationsToCreate: Array<{
+    bookingId: string
+    type: 'RESCHEDULE' | 'REMINDER_24H' | 'REMINDER_1H' | 'REMINDER_10MIN'
+    channel: 'EMAIL' | 'PUSH' | 'IN_APP'
+    scheduledFor: Date
+  }> = [
+    { bookingId: id, type: 'RESCHEDULE', channel: 'EMAIL', scheduledFor: now },
+    { bookingId: id, type: 'RESCHEDULE', channel: 'PUSH', scheduledFor: now },
+    { bookingId: id, type: 'RESCHEDULE', channel: 'IN_APP', scheduledFor: now },
+  ]
+
+  const time24h = new Date(newStartTime.getTime() - 24 * 60 * 60 * 1000)
+  const time1h = new Date(newStartTime.getTime() - 60 * 60 * 1000)
+  const time10m = new Date(newStartTime.getTime() - 10 * 60 * 1000)
+
+  if (time24h > now) {
+    notificationsToCreate.push(
+      { bookingId: id, type: 'REMINDER_24H', channel: 'EMAIL', scheduledFor: time24h },
+      { bookingId: id, type: 'REMINDER_24H', channel: 'PUSH', scheduledFor: time24h },
+      { bookingId: id, type: 'REMINDER_24H', channel: 'IN_APP', scheduledFor: time24h }
+    )
+  }
+  if (time1h > now) {
+    notificationsToCreate.push(
+      { bookingId: id, type: 'REMINDER_1H', channel: 'EMAIL', scheduledFor: time1h },
+      { bookingId: id, type: 'REMINDER_1H', channel: 'PUSH', scheduledFor: time1h },
+      { bookingId: id, type: 'REMINDER_1H', channel: 'IN_APP', scheduledFor: time1h }
+    )
+  }
+  if (time10m > now) {
+    notificationsToCreate.push(
+      { bookingId: id, type: 'REMINDER_10MIN', channel: 'EMAIL', scheduledFor: time10m },
+      { bookingId: id, type: 'REMINDER_10MIN', channel: 'PUSH', scheduledFor: time10m },
+      { bookingId: id, type: 'REMINDER_10MIN', channel: 'IN_APP', scheduledFor: time10m }
+    )
+  }
+
+  await prisma.notification.createMany({
+    data: notificationsToCreate,
+  }).catch(() => {})
+
+  processPendingNotifications(prisma).catch(() => {})
 
   res.json({
     success: true,
     message: 'Booking rescheduled successfully.',
     newStartTime: newSlot.startTime,
   })
+})
+
+// ─── Web Push Subscription Endpoints ─────────────────────────────────────────
+
+app.get('/api/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: getVapidPublicKey() })
+})
+
+app.post('/api/push/subscribe', async (req, res) => {
+  const { bookingId, subscription } = req.body
+  if (!bookingId || !subscription || !subscription.endpoint || !subscription.keys) {
+    return res.status(400).json({ error: 'bookingId and subscription (endpoint, keys) are required' })
+  }
+
+  try {
+    const pushSub = await prisma.pushSubscription.upsert({
+      where: { endpoint: subscription.endpoint },
+      update: {
+        bookingId,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+      },
+      create: {
+        bookingId,
+        endpoint: subscription.endpoint,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+      },
+    })
+    res.json({ success: true, pushSubscriptionId: pushSub.id })
+  } catch (err: any) {
+    console.error('[push-subscribe] Error:', err.message)
+    res.status(500).json({ error: 'Failed to save push subscription' })
+  }
+})
+
+// ─── In-App Notification Feed Endpoints ──────────────────────────────────────
+
+// Visitor Feed API: GET /api/notifications/visitor?bookingId=... OR visitorEmail=...
+app.get('/api/notifications/visitor', async (req, res) => {
+  const bookingId = req.query.bookingId as string
+  const visitorEmail = req.query.visitorEmail as string
+
+  if (!bookingId && !visitorEmail) {
+    return res.status(400).json({ error: 'bookingId or visitorEmail is required' })
+  }
+
+  try {
+    const rawNotifs = await prisma.notification.findMany({
+      where: {
+        channel: 'IN_APP',
+        status: 'SENT',
+        booking: bookingId
+          ? { id: bookingId }
+          : { visitorEmail: visitorEmail },
+      },
+      include: {
+        booking: {
+          include: { counsellor: true, payment: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    })
+
+    const clientBaseUrl = process.env.CLIENT_BASE_URL || 'http://localhost:3000'
+
+    const notifications = rawNotifs.map((n) => {
+      const b = n.booking
+      const counsellorName = b.counsellor?.name || 'Counsellor'
+      const startTimeFmt = new Date(b.startTime).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
+
+      let title = 'Notification'
+      let message = `Session update for your appointment`
+      let category: 'payment' | 'booking' | 'session' | 'cancellation' = 'booking'
+      let actionUrl = `${clientBaseUrl}/booking/manage?bookingId=${b.id}`
+
+      switch (n.type) {
+        case 'PAYMENT_RECEIPT':
+          title = 'Payment Received'
+          message = `Payment of ₹${b.payment ? Number(b.payment.amount) : 1500} confirmed for session with ${counsellorName}`
+          category = 'payment'
+          break
+        case 'BOOKING_CONFIRMATION':
+          title = 'Booking Confirmed'
+          message = `Your session with ${counsellorName} is confirmed for ${startTimeFmt}`
+          category = 'booking'
+          actionUrl = `${clientBaseUrl}/session?bookingId=${b.id}`
+          break
+        case 'REMINDER_24H':
+          title = 'Session Starting Tomorrow'
+          message = `Reminder: Your session with ${counsellorName} starts in 24 hours (${startTimeFmt})`
+          category = 'session'
+          actionUrl = `${clientBaseUrl}/session?bookingId=${b.id}`
+          break
+        case 'REMINDER_1H':
+          title = 'Session Starting in 1 Hour'
+          message = `Reminder: Get ready! Your session with ${counsellorName} starts in 1 hour`
+          category = 'session'
+          actionUrl = `${clientBaseUrl}/session?bookingId=${b.id}`
+          break
+        case 'REMINDER_10MIN':
+          title = 'Session Starting in 10 Minutes'
+          message = `Your video session with ${counsellorName} is starting now! Click to join.`
+          category = 'session'
+          actionUrl = `${clientBaseUrl}/session?bookingId=${b.id}`
+          break
+        case 'RESCHEDULE':
+          title = 'Session Rescheduled'
+          message = `Your session with ${counsellorName} was moved to ${startTimeFmt}`
+          category = 'booking'
+          break
+        case 'CANCELLATION':
+          title = 'Session Cancelled'
+          message = `Your session with ${counsellorName} scheduled for ${startTimeFmt} was cancelled`
+          category = 'cancellation'
+          break
+        case 'REFUND':
+          title = 'Refund Processed'
+          message = `A refund of ₹${b.payment ? Number(b.payment.amount) : 1500} has been issued to your original payment method`
+          category = 'payment'
+          break
+      }
+
+      return {
+        id: n.id,
+        bookingId: b.id,
+        type: n.type,
+        category,
+        title,
+        message,
+        actionUrl,
+        isRead: n.isRead,
+        createdAt: n.createdAt,
+        scheduledFor: n.scheduledFor,
+        counsellorName,
+        startTime: b.startTime,
+      }
+    })
+
+    const unreadCount = notifications.filter((n) => !n.isRead).length
+
+    res.json({ notifications, unreadCount })
+  } catch (err: any) {
+    console.error('[notifications-visitor] Error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch visitor notifications' })
+  }
+})
+
+// Counsellor Feed API: GET /api/notifications/counsellor?counsellorId=...
+app.get('/api/notifications/counsellor', async (req, res) => {
+  const counsellorId = req.query.counsellorId as string
+
+  if (!counsellorId) {
+    return res.status(400).json({ error: 'counsellorId is required' })
+  }
+
+  try {
+    const rawNotifs = await prisma.notification.findMany({
+      where: {
+        channel: 'IN_APP',
+        status: 'SENT',
+        booking: { counsellorId },
+      },
+      include: {
+        booking: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    })
+
+    const clientBaseUrl = process.env.CLIENT_BASE_URL || 'http://localhost:3000'
+
+    const notifications = rawNotifs.map((n) => {
+      const b = n.booking
+      const visitorName = b.visitorName || 'Client'
+      const startTimeFmt = new Date(b.startTime).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
+
+      let title = 'Notification'
+      let message = `Session update for ${visitorName}`
+      let category: 'payment' | 'booking' | 'session' | 'cancellation' = 'booking'
+      let actionUrl = `${clientBaseUrl}/session?bookingId=${b.id}`
+
+      switch (n.type) {
+        case 'BOOKING_CONFIRMATION':
+          title = 'New Booking Confirmed'
+          message = `New session booked by ${visitorName} for ${startTimeFmt}`
+          category = 'booking'
+          break
+        case 'REMINDER_24H':
+          title = 'Upcoming Session Tomorrow'
+          message = `Reminder: Session with ${visitorName} in 24 hours (${startTimeFmt})`
+          category = 'session'
+          break
+        case 'REMINDER_1H':
+          title = 'Session in 1 Hour'
+          message = `Reminder: Session with ${visitorName} starts in 1 hour`
+          category = 'session'
+          break
+        case 'REMINDER_10MIN':
+          title = 'Session Starting Now'
+          message = `Session with ${visitorName} starts in 10 minutes. Click to join room.`
+          category = 'session'
+          break
+        case 'RESCHEDULE':
+          title = 'Session Rescheduled'
+          message = `${visitorName} rescheduled their session to ${startTimeFmt}`
+          category = 'booking'
+          break
+        case 'CANCELLATION':
+          title = 'Session Cancelled'
+          message = `Session with ${visitorName} on ${startTimeFmt} was cancelled. Slot released.`
+          category = 'cancellation'
+          break
+        default:
+          title = 'Client Payment Update'
+          message = `Payment update received for ${visitorName}'s booking`
+          category = 'payment'
+          break
+      }
+
+      return {
+        id: n.id,
+        bookingId: b.id,
+        type: n.type,
+        category,
+        title,
+        message,
+        actionUrl,
+        isRead: n.isRead,
+        createdAt: n.createdAt,
+        scheduledFor: n.scheduledFor,
+        visitorName,
+        startTime: b.startTime,
+      }
+    })
+
+    const unreadCount = notifications.filter((n) => !n.isRead).length
+
+    res.json({ notifications, unreadCount })
+  } catch (err: any) {
+    console.error('[notifications-counsellor] Error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch counsellor notifications' })
+  }
+})
+
+// Mark single notification as read
+app.patch('/api/notifications/:id/read', async (req, res) => {
+  const { id } = req.params
+  try {
+    const updated = await prisma.notification.update({
+      where: { id },
+      data: { isRead: true, readAt: new Date() },
+    })
+    res.json({ success: true, id: updated.id, isRead: true })
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to mark notification as read' })
+  }
+})
+
+// Mark all in-app notifications as read
+app.patch('/api/notifications/read-all', async (req, res) => {
+  const { bookingId, counsellorId } = req.body
+  if (!bookingId && !counsellorId) {
+    return res.status(400).json({ error: 'bookingId or counsellorId is required' })
+  }
+
+  try {
+    await prisma.notification.updateMany({
+      where: {
+        channel: 'IN_APP',
+        isRead: false,
+        booking: bookingId
+          ? { id: bookingId }
+          : { counsellorId },
+      },
+      data: { isRead: true, readAt: new Date() },
+    })
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to mark notifications as read' })
+  }
+})
+
+// ─── Notification Cron Scheduler (Runs every minute) ─────────────────────────
+cron.schedule('* * * * *', async () => {
+  try {
+    await processPendingNotifications(prisma)
+  } catch (err: any) {
+    console.error('[cron] Error processing pending notifications:', err.message)
+  }
 })
 
 const PORT = process.env.PORT || 4000
