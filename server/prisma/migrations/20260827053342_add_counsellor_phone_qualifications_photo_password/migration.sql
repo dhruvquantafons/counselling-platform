@@ -1,5 +1,5 @@
 -- AlterTable
-ALTER TABLE "Counsellor" ADD COLUMN     "passwordHash" TEXT,
-ADD COLUMN     "phone" TEXT,
-ADD COLUMN     "photoUrl" TEXT,
-ADD COLUMN     "qualifications" TEXT;
+ALTER TABLE "Counsellor" ADD COLUMN IF NOT EXISTS "passwordHash" TEXT,
+ADD COLUMN IF NOT EXISTS "phone" TEXT,
+ADD COLUMN IF NOT EXISTS "photoUrl" TEXT,
+ADD COLUMN IF NOT EXISTS "qualifications" TEXT;

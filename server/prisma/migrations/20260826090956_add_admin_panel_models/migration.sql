@@ -5,13 +5,17 @@
 
 */
 -- CreateEnum
-CREATE TYPE "CounsellorStatus" AS ENUM ('PENDING', 'ACTIVE', 'SUSPENDED', 'REMOVED');
+DO $$ BEGIN
+    CREATE TYPE "CounsellorStatus" AS ENUM ('PENDING', 'ACTIVE', 'SUSPENDED', 'REMOVED');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- AlterTable
-ALTER TABLE "Counsellor" ADD COLUMN     "status" "CounsellorStatus" NOT NULL DEFAULT 'PENDING';
+ALTER TABLE "Counsellor" ADD COLUMN IF NOT EXISTS "status" "CounsellorStatus" NOT NULL DEFAULT 'PENDING';
 
 -- AlterTable
-ALTER TABLE "Payment" DROP COLUMN "method";
+ALTER TABLE "Payment" DROP COLUMN IF EXISTS "method";
 
 -- CreateTable
 CREATE TABLE "StaticPage" (
