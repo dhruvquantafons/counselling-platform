@@ -165,10 +165,16 @@ function CheckoutInner() {
       });
 
       if (!orderRes.ok) {
-        throw new Error("Failed to create payment order");
+        const errData = await orderRes.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to create payment order");
       }
 
       const { orderId, amount, keyId, bookingId } = await orderRes.json();
+
+      if (typeof window !== "undefined") {
+        localStorage.setItem("visitorBookingId", bookingId);
+        localStorage.setItem("visitorEmail", email);
+      }
 
       // Step 2: Load Razorpay SDK
       await loadRazorpayScript();

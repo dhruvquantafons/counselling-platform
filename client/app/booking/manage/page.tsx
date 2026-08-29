@@ -3,6 +3,8 @@
 import { Suspense, useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import PushNotificationToggle from "@/app/components/PushNotificationToggle";
+import NotificationFeed from "@/app/components/NotificationFeed";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -101,6 +103,10 @@ function BookingManageInner() {
       .then((data) => {
         if (data.error) throw new Error(data.error);
         setBooking(data);
+        if (typeof window !== "undefined") {
+          if (data.id) localStorage.setItem("visitorBookingId", data.id);
+          if (data.visitorEmail) localStorage.setItem("visitorEmail", data.visitorEmail);
+        }
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Booking not found"))
       .finally(() => setLoading(false));
@@ -276,6 +282,11 @@ function BookingManageInner() {
           </button>
         </div>
       )}
+
+      {/* Push Notification Opt-in Banner */}
+      <div className="mb-6">
+        <PushNotificationToggle bookingId={booking.id} />
+      </div>
 
       {/* Main Details Card */}
       <div className="bg-white rounded-3xl border border-sage/15 p-6 shadow-soft space-y-6">
