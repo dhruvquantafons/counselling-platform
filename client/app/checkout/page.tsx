@@ -15,7 +15,7 @@ declare global {
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 const steps = ["Select Counsellor", "Your Details", "Payment", "Choose Slot"];
 const RAZORPAY_SCRIPT = "https://checkout.razorpay.com/v1/checkout.js";
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";;
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
 type Counsellor = {
