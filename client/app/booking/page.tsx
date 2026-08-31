@@ -319,7 +319,7 @@ function SlotPickerInner() {
               id="confirm-slot-btn"
               onClick={handleConfirm}
               disabled={confirming}
-              className="shrink-0 bg-sage text-white rounded-full px-6 py-2.5 text-sm font-medium hover:bg-sage-dark transition-colors disabled:opacity-50 flex items-center gap-2"
+              className="shrink-0 bg-sage text-white rounded-full px-6 py-2.5 text-sm font-medium hover:bg-sage-dark hover:scale-[1.02] active:scale-[0.98] transition-all duration-150 disabled:opacity-50 flex items-center gap-2"
             >
               {confirming ? (
                 <>
@@ -346,7 +346,7 @@ function SlotPickerInner() {
       <div className="mt-8 flex items-center justify-center gap-3">
         <Link
           href={bookingId ? `/checkout` : "/directory"}
-          className="text-sm text-ink/50 hover:text-ink transition-colors"
+          className="text-sm text-ink/50 hover:text-ink transition-colors duration-150"
         >
           ← Back
         </Link>

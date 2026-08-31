@@ -90,7 +90,7 @@ export default function AdminBookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const pageSize = 5;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -114,9 +114,9 @@ export default function AdminBookingsPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/admin/counsellors`, { headers: adminHeaders() })
+    fetch(`${API_BASE}/api/admin/counsellors?pageSize=1000`, { headers: adminHeaders() })
       .then((r) => r.json())
-      .then((data) => setCounsellors(data.map((c: any) => ({ id: c.id, name: c.name }))))
+      .then((data) => setCounsellors((data.counsellors || []).map((c: any) => ({ id: c.id, name: c.name }))))
       .catch(() => {});
   }, []);
 
@@ -132,9 +132,9 @@ export default function AdminBookingsPage() {
       const res = await fetch(`${API_BASE}/api/admin/bookings?${params}`, { headers: adminHeaders() });
       if (!res.ok) throw new Error("Failed to load bookings");
       const data = await res.json();
-      setBookings(data.bookings);
-      setTotal(data.total);
-    } catch (e: any) { setError(e.message); }
+      setBookings(Array.isArray(data?.bookings) ? data.bookings : []);
+      setTotal(typeof data?.total === "number" ? data.total : 0);
+    } catch (e: any) { setError(e.message); setBookings([]); setTotal(0); }
     finally { setLoading(false); }
   }, [page, counsellorId, dateFrom, dateTo, status, paymentStatus]);
 
@@ -342,117 +342,140 @@ export default function AdminBookingsPage() {
 
       {/* Table */}
       <div className="bg-white rounded-2xl border border-sage/10 shadow-soft overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-sage/10 bg-paper/40">
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Booking ID</th>
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Client</th>
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Counsellor</th>
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Session</th>
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Status</th>
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Payment</th>
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Gateway IDs</th>
-                <th className="text-right px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Amount</th>
-                <th className="text-right px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Actions</th>
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col className="w-[10%]" />
+            <col className="w-[17%]" />
+            <col className="w-[12%]" />
+            <col className="w-[14%]" />
+            <col className="w-[11%]" />
+            <col className="w-[11%]" />
+            <col className="w-[15%]" />
+            <col className="w-[6%]" />
+            <col className="w-[4%]" />
+          </colgroup>
+          <thead>
+            <tr className="border-b border-sage/10 bg-paper/40">
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide truncate">Book ID</th>
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide">Client</th>
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide truncate">Counsellor</th>
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide">Session</th>
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide truncate">Status</th>
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide truncate">Payment</th>
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide truncate">Gateway</th>
+              <th className="text-right px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide">Amount</th>
+              <th className="text-right px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-sage/10">
+            {loading && Array.from({ length: 8 }).map((_, i) => (
+              <tr key={i} className="animate-pulse">
+                {Array.from({ length: 9 }).map((_, j) => (
+                  <td key={j} className="px-3 py-3"><div className="h-3 bg-sage-light/40 rounded w-3/4" /></td>
+                ))}
               </tr>
-            </thead>
-            <tbody className="divide-y divide-sage/10">
-              {loading && Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="animate-pulse">
-                  {Array.from({ length: 9 }).map((_, j) => (
-                    <td key={j} className="px-5 py-4"><div className="h-3 bg-sage-light/40 rounded w-3/4" /></td>
-                  ))}
-                </tr>
-              ))}
-              {!loading && bookings.length === 0 && (
-                <tr><td colSpan={9} className="px-5 py-12 text-center text-sm text-ink/40">No bookings match your filters.</td></tr>
-              )}
-              {!loading && bookings.map((b) => (
-                <tr key={b.id} className="hover:bg-sage-light/20 transition-colors">
-                  <td className="px-5 py-4 whitespace-nowrap">
-                    <CopyChip value={b.id} label={"bid" + b.id} />
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-full bg-sage-light flex items-center justify-center font-display text-[13px] text-sage-dark shrink-0 ring-1 ring-sage/10">
-                        {b.visitorName.split(" ").map((w) => w[0]).slice(0, 2).join("")}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-medium text-ink truncate">{b.visitorName}</p>
-                        <p className="text-xs text-ink/45 truncate">{b.visitorEmail}</p>
-                      </div>
+            ))}
+            {!loading && bookings.length === 0 && (
+              <tr><td colSpan={9} className="px-5 py-12 text-center text-sm text-ink/40">No bookings match your filters.</td></tr>
+            )}
+            {!loading && bookings.map((b) => (
+              <tr key={b.id} className="hover:bg-sage-light/20 transition-colors">
+                <td className="px-3 py-3">
+                  <CopyChip value={b.id} label={"bid" + b.id} />
+                </td>
+                <td className="px-3 py-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-sage-light flex items-center justify-center font-display text-[11px] text-sage-dark shrink-0 ring-1 ring-sage/10">
+                      {(b.visitorName || "?").split(" ").map((w: string) => w[0]).slice(0, 2).join("")}
                     </div>
-                  </td>
-                  <td className="px-5 py-4 text-ink/75 whitespace-nowrap">{b.counsellor.name}</td>
-                  <td className="px-5 py-4 text-ink/70 whitespace-nowrap text-xs">
-                    {new Date(b.startTime).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                    <span className="text-ink/30 mx-1">·</span>
-                    <span className="font-mono text-[11px]">
-                      {new Date(b.startTime).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide ${BOOKING_STATUS_COLOR[b.status] ?? "bg-ink/5 text-ink/50 ring-1 ring-ink/10"}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${BOOKING_STATUS_DOT[b.status] ?? "bg-ink/30"}`} />
-                      {capitalizeStatus(b.status)}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4 whitespace-nowrap">
-                    {b.payment ? (
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide ${PAYMENT_STATUS_COLOR[b.payment.status] ?? "bg-ink/5 text-ink/50 ring-1 ring-ink/10"}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${PAYMENT_STATUS_DOT[b.payment.status] ?? "bg-ink/30"}`} />
-                        {capitalizeStatus(b.payment.status)}
-                      </span>
-                    ) : <span className="text-xs text-ink/30 italic">—</span>}
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] font-mono uppercase text-ink/30 w-8 shrink-0">Order</span>
-                        <CopyChip value={b.payment?.gatewayOrderId} label={"goid" + (b.payment?.gatewayOrderId ?? b.id)} />
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] font-mono uppercase text-ink/30 w-8 shrink-0">Pay</span>
-                        <CopyChip value={b.payment?.gatewayPaymentId} label={"gpid" + (b.payment?.gatewayPaymentId ?? b.id)} />
-                      </div>
+                    <div className="min-w-0">
+                      <p className="font-medium text-ink text-xs truncate">{b.visitorName}</p>
+                      <p className="text-[10px] text-ink/45 truncate">{b.visitorEmail}</p>
                     </div>
-                  </td>
-                  <td className="px-5 py-4 text-right whitespace-nowrap">
-                    {b.payment ? (
-                      <span className="font-mono text-sm font-semibold text-ink tabular-nums">
-                        ₹{Number(b.payment.amount).toLocaleString("en-IN")}
-                      </span>
-                    ) : <span className="text-xs text-ink/30 italic">—</span>}
-                  </td>
-                  <td className="px-5 py-4 text-right whitespace-nowrap">
-                    <button
-                    onClick={() => openEditor(b)}
-                    disabled={b.status === 'CANCELLED'}
-                    className="inline-flex items-center gap-1 border border-sage/30 text-sage-dark px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-sage-light/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-2.049 1.189l-3.24.81.81-3.24a4.5 4.5 0 011.189-2.049L16.862 4.487zM19.5 21.75h.008v.008H19.5V21.75z" />
-                    </svg>
-                    Edit Slot
-                  </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+                </td>
+                <td className="px-3 py-3 text-ink/75 text-xs truncate">{b.counsellor?.name || "—"}</td>
+                <td className="px-3 py-3 text-ink/70 text-[11px] whitespace-nowrap">
+                  {new Date(b.startTime).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
+                  <span className="text-ink/30 mx-0.5">·</span>
+                  <span className="font-mono text-[10px]">
+                    {new Date(b.startTime).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide ${BOOKING_STATUS_COLOR[b.status] ?? "bg-ink/5 text-ink/50 ring-1 ring-ink/10"}`}>
+                    <span className={`w-1 h-1 rounded-full mr-1 ${BOOKING_STATUS_DOT[b.status] ?? "bg-ink/30"}`} />
+                    {capitalizeStatus(b.status)}
+                  </span>
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap">
+                  {b.payment ? (
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide ${PAYMENT_STATUS_COLOR[b.payment.status] ?? "bg-ink/5 text-ink/50 ring-1 ring-ink/10"}`}>
+                      <span className={`w-1 h-1 rounded-full mr-1 ${PAYMENT_STATUS_DOT[b.payment.status] ?? "bg-ink/30"}`} />
+                      {capitalizeStatus(b.payment.status)}
+                    </span>
+                  ) : <span className="text-[10px] text-ink/30 italic">—</span>}
+                </td>
+                <td className="px-3 py-3 text-[10px] font-mono">
+                  <div className="space-y-0.5 min-w-0">
+                    {b.payment?.gatewayOrderId ? (
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span className="text-ink/30 shrink-0">O</span>
+                        <span className="text-ink/60 truncate">{b.payment.gatewayOrderId.length > 10 ? b.payment.gatewayOrderId.slice(0, 8) + "…" : b.payment.gatewayOrderId}</span>
+                      </div>
+                    ) : null}
+                    {b.payment?.gatewayPaymentId ? (
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span className="text-ink/30 shrink-0">P</span>
+                        <span className="text-ink/60 truncate">{b.payment.gatewayPaymentId.length > 10 ? b.payment.gatewayPaymentId.slice(0, 8) + "…" : b.payment.gatewayPaymentId}</span>
+                      </div>
+                    ) : (!b.payment?.gatewayOrderId ? <span className="text-ink/20 italic">—</span> : null)}
+                  </div>
+                </td>
+                <td className="px-3 py-3 text-right whitespace-nowrap">
+                  {b.payment ? (
+                    <span className="font-mono text-xs font-semibold text-ink tabular-nums">
+                      ₹{Number(b.payment.amount).toLocaleString("en-IN")}
+                    </span>
+                  ) : <span className="text-[10px] text-ink/30 italic">—</span>}
+                </td>
+                <td className="px-3 py-3 text-right whitespace-nowrap">
+                  <button
+                  onClick={() => openEditor(b)}
+                  disabled={b.status === 'CANCELLED'}
+                  className="inline-flex items-center justify-center px-2 py-1 border border-sage/30 text-sage-dark rounded-md text-[10px] font-medium hover:bg-sage-light/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed w-full">
+                  Edit
+                </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="px-5 py-4 border-t border-sage/10 flex items-center justify-between">
+          <div className="px-5 py-4 border-t border-sage/10 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-xs text-ink/40">
               Showing {Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} of {total}
             </p>
-            <div className="flex gap-1">
+            <div className="flex items-center gap-1 flex-wrap justify-center">
               <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
                 className="px-3 py-1.5 rounded-lg text-xs text-ink/60 border border-sage/20 hover:bg-sage-light/40 transition-colors disabled:opacity-30">
                 ← Prev
               </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).slice(
+                Math.max(0, Math.min(page - 3, totalPages - 5)),
+                Math.max(0, Math.min(page - 3, totalPages - 5)) + 5
+              ).map((n) => (
+                <button key={n} onClick={() => setPage(n)}
+                  className={`min-w-[2rem] h-8 px-2 rounded-lg text-xs font-medium border transition-colors ${
+                    page === n
+                      ? "bg-sage text-white border-sage shadow-soft"
+                      : "text-ink/60 border-sage/20 hover:bg-sage-light/40"
+                  }`}>
+                  {n}
+                </button>
+              ))}
               <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
                 className="px-3 py-1.5 rounded-lg text-xs text-ink/60 border border-sage/20 hover:bg-sage-light/40 transition-colors disabled:opacity-30">
                 Next →

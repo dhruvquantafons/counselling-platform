@@ -6,9 +6,9 @@ import { useSearchParams } from "next/navigation";
 import NotificationFeed from "@/app/components/NotificationFeed";
 
 const nav = [
-  { label: "Find a counsellor", href: "/directory" },
-  { label: "How it works", href: "/#how-it-works" },
-  { label: "For counsellors", href: "#for-counsellors" },
+  { label: "Find A Counsellor", href: "/directory" },
+  { label: "How It Works", href: "/#how-it-works" },
+  { label: "For Counsellors", href: "/counsellor/login" },
 ];
 
 function VisitorNotificationBell() {
@@ -63,8 +63,8 @@ export default function Header() {
     <header
       className={`sticky top-0 z-50 border-b transition-all duration-300 ${
         scrolled
-          ? "bg-paper/95 backdrop-blur-md border-sage/15 shadow-soft"
-          : "bg-paper/80 backdrop-blur-md border-sage/10"
+          ? "bg-[#F8F7F2]/95 backdrop-blur-md border-sage/15 shadow-soft"
+          : "bg-[#F8F7F2]/90 backdrop-blur-md border-sage/10"
       }`}
     >
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -95,13 +95,13 @@ export default function Header() {
           </Suspense>
           <Link
             href="/directory"
-            className="text-sm font-medium text-sage-dark hover:text-sage transition-colors"
+            className="text-sm font-medium text-sage-dark hover:text-sage transition-colors duration-150"
           >
             Sign in
           </Link>
           <Link
             href="/directory"
-            className="text-sm font-medium bg-sage text-white px-5 py-2 rounded-full hover:bg-sage-dark transition-colors active:scale-[0.97]"
+            className="text-sm font-medium bg-sage text-white px-5 py-2 rounded-full hover:bg-sage-dark hover:scale-[1.02] active:scale-[0.98] transition-all duration-150"
           >
             Get started
           </Link>
@@ -139,7 +139,7 @@ export default function Header() {
 
       {/* Mobile menu */}
       {menuOpen && (
-        <div className="md:hidden border-t border-sage/10 bg-paper animate-slide-down">
+        <div className="md:hidden border-t border-sage/10 bg-[#F8F7F2] animate-slide-down">
           <div className="max-w-6xl mx-auto px-6 py-4 space-y-1">
             {nav.map((item) => (
               <Link
@@ -162,7 +162,7 @@ export default function Header() {
               <Link
                 href="/directory"
                 onClick={handleNavClick}
-                className="text-sm font-medium bg-sage text-white px-5 py-2.5 rounded-full text-center hover:bg-sage-dark transition-colors"
+                className="text-sm font-medium bg-sage text-white px-5 py-2.5 rounded-full text-center hover:bg-sage-dark active:scale-[0.98] transition-all duration-150"
               >
                 Get started
               </Link>

@@ -6,15 +6,15 @@ const footerLinks = [
     links: [
       { label: "Find a counsellor", href: "/directory" },
       { label: "How it works", href: "/#how-it-works" },
-      { label: "Pricing", href: "#pricing" },
+      { label: "Terms & Conditions", href: "/terms" },
     ],
   },
   {
     title: "Support",
     links: [
-      { label: "Help centre", href: "#help" },
-      { label: "Contact us", href: "#contact" },
-      { label: "Privacy policy", href: "#privacy" },
+      { label: "FAQ", href: "/faq" },
+      { label: "Refund & Cancellation Policy", href: "/refund-policy" },
+      { label: "Privacy policy", href: "/privacy-policy" },
     ],
   },
   {

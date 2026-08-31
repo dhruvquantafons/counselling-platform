@@ -1,4 +1,23 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Find a Counsellor",
+  description:
+    "Browse verified counsellors by specialisation, language, and session fee. Every profile shows live availability — book a private video session in minutes.",
+  openGraph: {
+    title: "Find a Counsellor | Whybeigh",
+    description:
+      "Browse verified counsellors by specialisation, language, and session fee. Every profile shows live availability — book a private video session in minutes.",
+    url: "/directory",
+    type: "website",
+  },
+  twitter: {
+    title: "Find a Counsellor | Whybeigh",
+    description:
+      "Browse verified counsellors by specialisation, language, and session fee. Every profile shows live availability — book a private video session in minutes.",
+  },
+};
 
 type Counsellor = {
   id: string;
@@ -27,7 +46,7 @@ export default async function Directory() {
   const counsellors = await getCounsellors();
 
   return (
-    <main className="max-w-6xl mx-auto px-6 py-16">
+    <main className="max-w-6xl mx-auto px-6 py-16 animate-page-enter">
       <header className="mb-12 max-w-2xl animate-fade-in-up">
         <p className="font-mono text-xs tracking-wide text-sage uppercase mb-3">
           Find support

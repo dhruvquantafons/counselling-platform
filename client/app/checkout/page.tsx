@@ -284,7 +284,7 @@ function CheckoutInner() {
         <p className="text-ink/50 mb-4">No counsellor selected.</p>
         <Link
           href="/directory"
-          className="text-sm text-sage-dark hover:text-sage transition-colors"
+          className="text-sm text-sage-dark hover:text-sage transition-colors duration-150"
         >
           ← Browse counsellors
         </Link>
@@ -371,7 +371,7 @@ function CheckoutInner() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 disabled={isSubmitting}
-                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage/50 transition-all disabled:opacity-50 ${errors.name ? "border-red-300 focus:ring-red-100" : "border-sage/15"
+                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30 focus:border-sage/60 transition-all duration-150 disabled:opacity-50 ${errors.name ? "border-red-300 focus:ring-red-100" : "border-sage/15"
                   }`}
                 placeholder="Enter your full name"
               />
@@ -395,7 +395,7 @@ function CheckoutInner() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={isSubmitting}
-                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage/50 transition-all disabled:opacity-50 ${errors.email ? "border-red-300 focus:ring-red-100" : "border-sage/15"
+                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30 focus:border-sage/60 transition-all duration-150 disabled:opacity-50 ${errors.email ? "border-red-300 focus:ring-red-100" : "border-sage/15"
                   }`}
                 placeholder="you@example.com"
               />
@@ -419,7 +419,7 @@ function CheckoutInner() {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 disabled={isSubmitting}
-                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage/50 transition-all disabled:opacity-50 ${errors.phone ? "border-red-300 focus:ring-red-100" : "border-sage/15"
+                className={`w-full border rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30 focus:border-sage/60 transition-all duration-150 disabled:opacity-50 ${errors.phone ? "border-red-300 focus:ring-red-100" : "border-sage/15"
                   }`}
                 placeholder="10-digit mobile number"
               />
@@ -437,7 +437,7 @@ function CheckoutInner() {
               id="checkout-proceed-btn"
               onClick={handleProceed}
               disabled={isSubmitting}
-              className="w-full bg-sage text-white py-3.5 rounded-full mt-2 font-medium hover:bg-sage-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-[0.98]"
+              className="w-full bg-sage text-white py-3.5 rounded-full mt-2 font-medium hover:bg-sage-dark hover:scale-[1.01] active:scale-[0.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {paymentStatus === "creating" ? (
                 <>
