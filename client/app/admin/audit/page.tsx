@@ -74,7 +74,7 @@ export default function AdminAuditPage() {
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const pageSize = 50;
+  const pageSize = 5;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -88,8 +88,13 @@ export default function AdminAuditPage() {
       const res = await fetch(`${API_BASE}/api/admin/audit-log?${params}`, { headers: adminHeaders() });
       if (!res.ok) throw new Error("Failed to load audit log");
       const data = await res.json();
-      setLogs(data.logs); setTotal(data.total);
-    } catch (e: any) { setError(e.message); }
+      setLogs(Array.isArray(data?.logs) ? data.logs : []);
+      setTotal(typeof data?.total === "number" ? data.total : 0);
+    } catch (e: any) {
+      setError(e.message);
+      setLogs([]);
+      setTotal(0);
+    }
     finally { setLoading(false); }
   }, [page, search]);
 
@@ -145,7 +150,7 @@ export default function AdminAuditPage() {
     );
   }
 
-  const TARGET_ICON: Record<string, JSX.Element> = {
+  const TARGET_ICON: Record<string, React.ReactElement> = {
     COUNSELLOR: (
       <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
@@ -208,7 +213,7 @@ export default function AdminAuditPage() {
 
       {/* Search + Export */}
       <div className="bg-white rounded-2xl border border-sage/10 shadow-soft p-5 mb-6">
-        <form onSubmit={handleSearch} className="flex gap-3">
+        <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1 relative">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink/30" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
@@ -290,9 +295,9 @@ export default function AdminAuditPage() {
                   <td className="px-5 py-3.5">
                     <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink/75">
                       <span className="w-5 h-5 rounded-full bg-sage-light text-sage-dark flex items-center justify-center text-[10px] font-bold shrink-0 ring-1 ring-sage/10">
-                        {log.actor[0]?.toUpperCase()}
+                        {(log.actor || "?")[0]?.toUpperCase()}
                       </span>
-                      <span className="truncate max-w-[160px]" title={log.actor}>{log.actor}</span>
+                      <span className="truncate max-w-[160px]" title={log.actor}>{log.actor || "—"}</span>
                     </span>
                   </td>
                   <td className="px-5 py-3.5 whitespace-nowrap">
@@ -314,7 +319,7 @@ export default function AdminAuditPage() {
                           className="group inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md ring-1 ring-sage/15 bg-sage-50/50 hover:bg-sage-50 hover:ring-sage/30 transition-colors"
                         >
                           <span className="font-mono text-[11px] text-sage-dark/80 group-hover:text-sage-dark transition-colors max-w-[140px] truncate" title={log.targetId}>
-                            {log.targetId.length > 12 ? log.targetId.slice(0, 10) + "…" : log.targetId}
+                            {(log.targetId || "").length > 12 ? (log.targetId || "").slice(0, 10) + "…" : (log.targetId || "—")}
                           </span>
                           <svg className="w-2.5 h-2.5 text-sage/60 group-hover:text-sage-dark transition-colors shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
@@ -337,11 +342,24 @@ export default function AdminAuditPage() {
         </div>
 
         {totalPages > 1 && (
-          <div className="px-5 py-4 border-t border-sage/10 flex items-center justify-between">
-            <p className="text-xs text-ink/40">Page {page} of {totalPages}</p>
-            <div className="flex gap-1">
+          <div className="px-5 py-4 border-t border-sage/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <p className="text-xs text-ink/40">Showing {Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} of {total}</p>
+            <div className="flex items-center gap-1 flex-wrap justify-center">
               <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
                 className="px-3 py-1.5 rounded-lg text-xs text-ink/60 border border-sage/20 hover:bg-sage-light/40 transition-colors disabled:opacity-30">← Prev</button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).slice(
+                Math.max(0, Math.min(page - 3, totalPages - 5)),
+                Math.max(0, Math.min(page - 3, totalPages - 5)) + 5
+              ).map((n) => (
+                <button key={n} onClick={() => setPage(n)}
+                  className={`min-w-[2rem] h-8 px-2 rounded-lg text-xs font-medium border transition-colors ${
+                    page === n
+                      ? "bg-sage text-white border-sage shadow-soft"
+                      : "text-ink/60 border-sage/20 hover:bg-sage-light/40"
+                  }`}>
+                  {n}
+                </button>
+              ))}
               <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
                 className="px-3 py-1.5 rounded-lg text-xs text-ink/60 border border-sage/20 hover:bg-sage-light/40 transition-colors disabled:opacity-30">Next →</button>
             </div>

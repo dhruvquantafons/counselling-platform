@@ -1,9 +1,11 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 async function getCounsellor(id: string) {
   try {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-    const res = await fetch(`${apiBase}/api/counsellors/${id}`, {
+    const res = await fetch(`${API_BASE}/api/counsellors/${id}`, {
       cache: "no-store",
     });
     if (!res.ok) return null;
@@ -23,6 +25,42 @@ type Counsellor = {
   fee: number;
   bio: string;
 };
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const counsellor = (await getCounsellor(id)) as Counsellor | null;
+
+  if (!counsellor) {
+    return {
+      title: "Counsellor Not Found",
+      robots: { index: false, follow: false },
+    };
+  }
+
+  const title = `${counsellor.name} — ${counsellor.specialisation}`;
+  const description = counsellor.bio
+    ? counsellor.bio.slice(0, 155).replace(/\s+\S*$/, "") + "…"
+    : `Book a private online counselling session with ${counsellor.name}, specialising in ${counsellor.specialisation}. Available on Whybeigh.`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title: `${title} | Whybeigh`,
+      description,
+      url: `/directory/${id}`,
+      type: "profile",
+    },
+    twitter: {
+      title: `${title} | Whybeigh`,
+      description,
+    },
+  };
+}
 
 export default async function CounsellorProfile({
   params,
@@ -100,12 +138,12 @@ export default async function CounsellorProfile({
   ];
 
   return (
-    <main className="max-w-4xl mx-auto px-6 py-16 animate-fade-in">
+    <main className="max-w-4xl mx-auto px-6 py-16 animate-page-enter">
       <Link
         href="/directory"
-        className="inline-flex items-center text-sm text-ink/50 hover:text-ink transition-colors mb-8"
+        className="inline-flex items-center text-sm text-ink/50 hover:text-ink transition-colors duration-150 mb-8 group"
       >
-        <svg className="mr-1.5 w-4 h-4 rotate-180" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+        <svg className="mr-1.5 w-4 h-4 rotate-180 group-hover:-translate-x-0.5 transition-transform duration-150" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
         </svg>
         Back to directory
@@ -165,7 +203,7 @@ export default async function CounsellorProfile({
 
             <Link
               href={`/checkout?counsellorId=${counsellor.id}`}
-              className="block w-full bg-sage text-white text-center py-3.5 rounded-full font-medium hover:bg-sage-dark transition-colors text-sm mb-3 active:scale-[0.97]"
+              className="block w-full bg-sage text-white text-center py-3.5 rounded-full font-medium hover:bg-sage-dark hover:scale-[1.01] active:scale-[0.98] transition-all duration-150 text-sm mb-3"
             >
               Book a session
             </Link>

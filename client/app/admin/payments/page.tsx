@@ -67,7 +67,7 @@ export default function AdminPaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const pageSize = 20;
+  const pageSize = 5;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("");
@@ -83,8 +83,9 @@ export default function AdminPaymentsPage() {
       const res = await fetch(`${API_BASE}/api/admin/payments?${params}`, { headers: adminHeaders() });
       if (!res.ok) throw new Error("Failed to load payments");
       const data = await res.json();
-      setPayments(data.payments); setTotal(data.total);
-    } catch (e: any) { setError(e.message); }
+      setPayments(Array.isArray(data?.payments) ? data.payments : []);
+      setTotal(typeof data?.total === "number" ? data.total : 0);
+    } catch (e: any) { setError(e.message); setPayments([]); setTotal(0); }
     finally { setLoading(false); }
   }, [page, statusFilter]);
 
@@ -229,111 +230,134 @@ export default function AdminPaymentsPage() {
 
       {/* Table */}
       <div className="bg-white rounded-2xl border border-sage/10 shadow-soft overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-sage/10 bg-paper/40">
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Payment ID</th>
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Client</th>
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Counsellor</th>
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Session</th>
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Status</th>
-                <th className="text-left px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Gateway</th>
-                <th className="text-right px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Amount</th>
-                <th className="text-right px-5 py-3.5 text-xs font-mono text-ink/40 uppercase tracking-wide">Action</th>
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col className="w-[10%]" />
+            <col className="w-[18%]" />
+            <col className="w-[13%]" />
+            <col className="w-[14%]" />
+            <col className="w-[14%]" />
+            <col className="w-[17%]" />
+            <col className="w-[8%]" />
+            <col className="w-[6%]" />
+          </colgroup>
+          <thead>
+            <tr className="border-b border-sage/10 bg-paper/40">
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide truncate">Pay ID</th>
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide">Client</th>
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide truncate">Counsellor</th>
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide">Session</th>
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide truncate">Status</th>
+              <th className="text-left px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide truncate">Gateway</th>
+              <th className="text-right px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide">Amount</th>
+              <th className="text-right px-3 py-3 text-[10px] font-mono text-ink/40 uppercase tracking-wide"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-sage/10">
+            {loading && Array.from({ length: 8 }).map((_, i) => (
+              <tr key={i} className="animate-pulse">
+                {Array.from({ length: 8 }).map((_, j) => (
+                  <td key={j} className="px-3 py-3"><div className="h-3 bg-sage-light/40 rounded w-3/4" /></td>
+                ))}
               </tr>
-            </thead>
-            <tbody className="divide-y divide-sage/10">
-              {loading && Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="animate-pulse">
-                  {Array.from({ length: 8 }).map((_, j) => (
-                    <td key={j} className="px-5 py-4"><div className="h-3 bg-sage-light/40 rounded w-3/4" /></td>
-                  ))}
-                </tr>
-              ))}
-              {!loading && payments.length === 0 && (
-                <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-ink/40">No payments found.</td></tr>
-              )}
-              {!loading && payments.map((p) => (
-                <tr key={p.id} className={`hover:bg-sage-light/20 transition-colors ${isMismatch(p) ? "bg-rose-50/60 border-l-2 border-l-rose-400" : ""}`}>
-                  <td className="px-5 py-4 whitespace-nowrap">
-                    <CopyChip value={p.id} label={"pid" + p.id} />
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-full bg-sage-light flex items-center justify-center font-display text-[13px] text-sage-dark shrink-0 ring-1 ring-sage/10">
-                        {p.booking.visitorName.split(" ").map((w) => w[0]).slice(0, 2).join("")}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-medium text-ink truncate">{p.booking.visitorName}</p>
-                        <p className="text-xs text-ink/45 truncate">{p.booking.visitorEmail}</p>
-                      </div>
+            ))}
+            {!loading && payments.length === 0 && (
+              <tr><td colSpan={8} className="px-5 py-12 text-center text-sm text-ink/40">No payments found.</td></tr>
+            )}
+            {!loading && payments.map((p) => (
+              <tr key={p.id} className={`hover:bg-sage-light/20 transition-colors ${isMismatch(p) ? "bg-rose-50/60 border-l-2 border-l-rose-400" : ""}`}>
+                <td className="px-3 py-3">
+                  <CopyChip value={p.id} label={"pid" + p.id} />
+                </td>
+                <td className="px-3 py-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-sage-light flex items-center justify-center font-display text-[11px] text-sage-dark shrink-0 ring-1 ring-sage/10">
+                      {(p.booking?.visitorName || "?").split(" ").map((w: string) => w[0]).slice(0, 2).join("")}
                     </div>
-                  </td>
-                  <td className="px-5 py-4 text-ink/70 whitespace-nowrap">{p.booking.counsellor.name}</td>
-                  <td className="px-5 py-4 text-ink/70 whitespace-nowrap text-xs">
-                    {new Date(p.booking.startTime).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                    <span className="text-ink/30 mx-1">·</span>
-                    <span className="font-mono text-[11px]">
-                      {new Date(p.booking.startTime).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide ${STATUS_COLOR[p.status] ?? "bg-ink/5 text-ink/50 ring-1 ring-ink/10"}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${STATUS_DOT[p.status] ?? "bg-ink/30"}`} />
-                        {capitalizeStatus(p.status)}
+                    <div className="min-w-0">
+                      <p className="font-medium text-ink text-xs truncate">{p.booking?.visitorName}</p>
+                      <p className="text-[10px] text-ink/45 truncate">{p.booking?.visitorEmail}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-3 py-3 text-ink/70 text-xs truncate">{p.booking?.counsellor?.name || "—"}</td>
+                <td className="px-3 py-3 text-ink/70 text-[11px] whitespace-nowrap">
+                  {p.booking?.startTime ? (
+                    <>
+                      {new Date(p.booking.startTime).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
+                      <span className="text-ink/30 mx-0.5">·</span>
+                      <span className="font-mono text-[10px]">
+                        {new Date(p.booking.startTime).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
                       </span>
-                      {isMismatch(p) && (
-                        <span title="Reconciliation mismatch: SUCCESS without gateway payment ID" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-rose-50 ring-1 ring-rose-200/60 text-rose-700 text-[10px] font-semibold tracking-wide">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                          </svg>
-                          Mismatch
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex flex-col gap-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] font-mono uppercase text-ink/30 w-8 shrink-0">Order</span>
-                        <CopyChip value={p.gatewayOrderId} label={"go" + (p.gatewayOrderId ?? p.id)} />
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] font-mono uppercase text-ink/30 w-8 shrink-0">Pay</span>
-                        <CopyChip value={p.gatewayPaymentId} label={"gp" + (p.gatewayPaymentId ?? p.id)} />
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-5 py-4 text-right whitespace-nowrap">
-                    <span className="font-mono text-sm font-semibold text-ink tabular-nums">
-                      ₹{Number(p.amount).toLocaleString("en-IN")}
+                    </>
+                  ) : "—"}
+                </td>
+                <td className="px-3 py-3">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide ${STATUS_COLOR[p.status] ?? "bg-ink/5 text-ink/50 ring-1 ring-ink/10"}`}>
+                      <span className={`w-1 h-1 rounded-full mr-1 ${STATUS_DOT[p.status] ?? "bg-ink/30"}`} />
+                      {capitalizeStatus(p.status)}
                     </span>
-                  </td>
-                  <td className="px-5 py-4 text-right whitespace-nowrap">
-                    {p.status === "SUCCESS" && (
-                      <button onClick={() => setConfirmRefund(p)} disabled={!!refundLoading}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 border border-rose-200 text-rose-700 text-xs font-semibold rounded-lg hover:bg-rose-50 transition-colors disabled:opacity-50">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 14.25l6-6m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0c1.1.128 1.907 1.077 1.907 2.185zM9.75 9h.008v.008H9.75V9zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 4.5h.008v.008h-.008V13.5zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                        </svg>
-                        Refund
-                      </button>
+                    {isMismatch(p) && (
+                      <span title="Reconciliation mismatch" className="inline-flex items-center px-1 py-0.5 rounded-md bg-rose-50 ring-1 ring-rose-200/60 text-rose-700 text-[9px] font-semibold">
+                        !
+                      </span>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </div>
+                </td>
+                <td className="px-3 py-3 text-[10px] font-mono">
+                  <div className="space-y-0.5 min-w-0">
+                    {p.gatewayOrderId ? (
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span className="text-ink/30 shrink-0">O</span>
+                        <span className="text-ink/60 truncate">{p.gatewayOrderId.length > 10 ? p.gatewayOrderId.slice(0, 8) + "…" : p.gatewayOrderId}</span>
+                      </div>
+                    ) : null}
+                    {p.gatewayPaymentId ? (
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span className="text-ink/30 shrink-0">P</span>
+                        <span className="text-ink/60 truncate">{p.gatewayPaymentId.length > 10 ? p.gatewayPaymentId.slice(0, 8) + "…" : p.gatewayPaymentId}</span>
+                      </div>
+                    ) : (!p.gatewayOrderId ? <span className="text-ink/20 italic">—</span> : null)}
+                  </div>
+                </td>
+                <td className="px-3 py-3 text-right whitespace-nowrap">
+                  <span className="font-mono text-xs font-semibold text-ink tabular-nums">
+                    ₹{Number(p.amount).toLocaleString("en-IN")}
+                  </span>
+                </td>
+                <td className="px-3 py-3 text-right whitespace-nowrap">
+                  {p.status === "SUCCESS" && (
+                    <button onClick={() => setConfirmRefund(p)} disabled={!!refundLoading}
+                      className="inline-flex items-center justify-center px-2 py-1 border border-rose-200 text-rose-700 text-[10px] font-semibold rounded-md hover:bg-rose-50 transition-colors disabled:opacity-50 w-full">
+                      Refund
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
         {totalPages > 1 && (
-          <div className="px-5 py-4 border-t border-sage/10 flex items-center justify-between">
+          <div className="px-5 py-4 border-t border-sage/10 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-xs text-ink/40">Showing {Math.min((page-1)*pageSize+1, total)}–{Math.min(page*pageSize, total)} of {total}</p>
-            <div className="flex gap-1">
+            <div className="flex items-center gap-1 flex-wrap justify-center">
               <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
                 className="px-3 py-1.5 rounded-lg text-xs text-ink/60 border border-sage/20 hover:bg-sage-light/40 transition-colors disabled:opacity-30">← Prev</button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).slice(
+                Math.max(0, Math.min(page - 3, totalPages - 5)),
+                Math.max(0, Math.min(page - 3, totalPages - 5)) + 5
+              ).map((n) => (
+                <button key={n} onClick={() => setPage(n)}
+                  className={`min-w-[2rem] h-8 px-2 rounded-lg text-xs font-medium border transition-colors ${
+                    page === n
+                      ? "bg-sage text-white border-sage shadow-soft"
+                      : "text-ink/60 border-sage/20 hover:bg-sage-light/40"
+                  }`}>
+                  {n}
+                </button>
+              ))}
               <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
                 className="px-3 py-1.5 rounded-lg text-xs text-ink/60 border border-sage/20 hover:bg-sage-light/40 transition-colors disabled:opacity-30">Next →</button>
             </div>

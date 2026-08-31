@@ -546,7 +546,7 @@ export default function CounsellorDashboard() {
         <div
           className={`mb-6 rounded-2xl p-4 text-xs font-medium flex items-center justify-between animate-fade-in-up ${actionMessage.type === "success"
               ? "bg-sage-light/70 text-sage-dark border border-sage/20"
-              : "bg-red-50 text-red-700 border border-red-200"
+              : "bg-amber-light/70 text-amber border border-amber/30"
             }`}
         >
           <span>{actionMessage.text}</span>
@@ -557,7 +557,7 @@ export default function CounsellorDashboard() {
       )}
 
       {/* Navigation Tabs */}
-      <div className="flex flex-wrap gap-2 mb-8 border-b border-sage/10 pb-3">
+      <div className="flex flex-wrap gap-1 mb-8 border-b border-sage/10 pb-3">
         {[
           { id: "overview", label: "Overview & Earnings" },
           { id: "availability", label: "Availability & Schedule" },
@@ -568,9 +568,9 @@ export default function CounsellorDashboard() {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as typeof activeTab)}
-            className={`px-5 py-2.5 rounded-full text-xs font-mono tracking-wide transition-all ${activeTab === tab.id
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-colors ${activeTab === tab.id
                 ? "bg-sage text-white shadow-soft"
-                : "bg-white text-ink/70 border border-sage/15 hover:bg-sage-light/40"
+                : "text-ink/75 hover:text-ink hover:bg-sage-light/60 bg-sage-light/10"
               }`}
           >
             {tab.label}
@@ -583,34 +583,76 @@ export default function CounsellorDashboard() {
         <div className="space-y-8 animate-fade-in">
           {/* Key Metric Cards */}
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            <div className="bg-white rounded-2xl border border-sage/15 p-5 shadow-soft">
-              <p className="text-xs font-mono uppercase text-ink/40 mb-1">Total Revenue</p>
-              <p className="font-display text-3xl text-sage-dark">
+            <div className="card-hover bg-white rounded-2xl border border-sage/10 ring-1 ring-sage/20 p-5 shadow-soft relative overflow-hidden">
+              <div className="absolute left-0 top-0 w-1 h-full bg-gradient-to-b from-sage to-sage-dark" />
+              <div className="flex items-start justify-between mb-3 pl-1">
+                <p className="text-xs font-mono uppercase tracking-wider text-ink/55">Total Revenue</p>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-sage to-sage-dark text-white shadow-soft">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8V6m0 12v-2m7.5-4C19.5 15.538 16.056 18 12 18S4.5 15.538 4.5 14 7.944 10 12 10s7.5 1.538 7.5 4zM4.5 14a7.5 7.5 0 0015 0M12 3v.01" />
+                  </svg>
+                </div>
+              </div>
+              <p className="font-display text-2xl text-ink mb-1 pl-1 tabular-nums tracking-tight">
                 ₹{earnings ? earnings.totalEarnings.toLocaleString("en-IN") : 0}
               </p>
-              <p className="text-[11px] text-ink/50 mt-1">Lifetime payments collected</p>
+              <div className="flex items-center justify-between pl-1">
+                <p className="text-xs text-ink/45">Lifetime payments collected</p>
+              </div>
             </div>
 
-            <div className="bg-white rounded-2xl border border-sage/15 p-5 shadow-soft">
-              <p className="text-xs font-mono uppercase text-ink/40 mb-1">MTD Earnings</p>
-              <p className="font-display text-3xl text-ink">
+            <div className="card-hover bg-white rounded-2xl border border-sage/10 ring-1 ring-sky-200/80 p-5 shadow-soft relative overflow-hidden">
+              <div className="absolute left-0 top-0 w-1 h-full bg-gradient-to-b from-sky-500 to-indigo-600" />
+              <div className="flex items-start justify-between mb-3 pl-1">
+                <p className="text-xs font-mono uppercase tracking-wider text-ink/55">MTD Earnings</p>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-sky-500 to-indigo-600 text-white shadow-soft">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941" />
+                  </svg>
+                </div>
+              </div>
+              <p className="font-display text-2xl text-ink mb-1 pl-1 tabular-nums tracking-tight">
                 ₹{earnings ? earnings.mtdEarnings.toLocaleString("en-IN") : 0}
               </p>
-              <p className="text-[11px] text-sage-dark font-medium mt-1">Month-to-date income</p>
+              <div className="flex items-center justify-between pl-1">
+                <p className="text-xs text-ink/45">Month-to-date income</p>
+              </div>
             </div>
 
-            <div className="bg-white rounded-2xl border border-sage/15 p-5 shadow-soft">
-              <p className="text-xs font-mono uppercase text-ink/40 mb-1">Completed Sessions</p>
-              <p className="font-display text-3xl text-ink">{earnings ? earnings.completedCount : 0}</p>
-              <p className="text-[11px] text-ink/50 mt-1">
-                Avg ₹{earnings ? earnings.avgPerSession : 0}/session
+            <div className="card-hover bg-white rounded-2xl border border-sage/10 ring-1 ring-emerald-100/80 p-5 shadow-soft relative overflow-hidden">
+              <div className="absolute left-0 top-0 w-1 h-full bg-gradient-to-b from-emerald-500 to-teal-600" />
+              <div className="flex items-start justify-between mb-3 pl-1">
+                <p className="text-xs font-mono uppercase tracking-wider text-ink/55">Completed Sessions</p>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-soft">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                  </svg>
+                </div>
+              </div>
+              <p className="font-display text-2xl text-ink mb-1 pl-1 tabular-nums tracking-tight">
+                {earnings ? earnings.completedCount : 0}
               </p>
+              <div className="flex items-center justify-between pl-1">
+                <p className="text-xs text-ink/45">Avg ₹{earnings ? earnings.avgPerSession : 0}/session</p>
+              </div>
             </div>
 
-            <div className="bg-white rounded-2xl border border-sage/15 p-5 shadow-soft">
-              <p className="text-xs font-mono uppercase text-ink/40 mb-1">Upcoming Sessions</p>
-              <p className="font-display text-3xl text-amber">{earnings ? earnings.upcomingCount : 0}</p>
-              <p className="text-[11px] text-ink/50 mt-1">Scheduled on calendar</p>
+            <div className="card-hover bg-white rounded-2xl border border-sage/10 ring-1 ring-amber/20 p-5 shadow-soft relative overflow-hidden">
+              <div className="absolute left-0 top-0 w-1 h-full bg-gradient-to-b from-amber to-amber-600" />
+              <div className="flex items-start justify-between mb-3 pl-1">
+                <p className="text-xs font-mono uppercase tracking-wider text-ink/55">Upcoming Sessions</p>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-gradient-to-br from-amber to-amber-600 text-white shadow-soft">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm-6 0h.008v.008H6V15Zm0-3h.008v.008H6v-.008Zm12 0h.008v.008H18v-.008Zm0 3h.008v.008H18V15Z" />
+                  </svg>
+                </div>
+              </div>
+              <p className="font-display text-2xl text-ink mb-1 pl-1 tabular-nums tracking-tight">
+                {earnings ? earnings.upcomingCount : 0}
+              </p>
+              <div className="flex items-center justify-between pl-1">
+                <p className="text-xs text-ink/45">Scheduled on calendar</p>
+              </div>
             </div>
           </div>
 
@@ -657,12 +699,12 @@ export default function CounsellorDashboard() {
                   const mode = item.paymentMode || "Card";
                   const modeColor =
                     mode === "Card"
-                      ? "bg-blue-50 text-blue-700 border-blue-200"
+                      ? "bg-sage-light text-sage-dark border-sage/20"
                       : mode === "UPI"
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        ? "bg-paper text-sage border-sage/20"
                         : mode === "Wallet"
-                          ? "bg-amber-50 text-amber-800 border-amber-200"
-                          : "bg-purple-50 text-purple-700 border-purple-200";
+                          ? "bg-amber-light text-amber border-amber/30"
+                          : "bg-ink/5 text-ink border-ink/10";
 
                   return (
                     <div
@@ -697,8 +739,17 @@ export default function CounsellorDashboard() {
                       <div className="text-right flex items-center gap-3">
                         <div>
                           <p className="font-mono font-semibold text-sage-dark">₹{item.amount}</p>
-                          <span className="text-[10px] uppercase font-mono px-2 py-0.5 bg-sage-light text-sage-dark rounded">
-                            {item.status}
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wide ${
+                            item.status === "COMPLETED" || item.status === "SUCCESS" || item.status === "CONFIRMED" ? "bg-sage-50 text-sage-dark ring-1 ring-sage/20" :
+                            item.status === "FAILED" || item.status === "CANCELLED" ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200/60" :
+                            "bg-amber-50 text-amber ring-1 ring-amber/20"
+                          }`}>
+                            <span className={`w-1 h-1 rounded-full mr-1.5 ${
+                              item.status === "COMPLETED" || item.status === "SUCCESS" || item.status === "CONFIRMED" ? "bg-sage" :
+                              item.status === "FAILED" || item.status === "CANCELLED" ? "bg-rose-500" :
+                              "bg-amber"
+                            }`} />
+                            {item.status.charAt(0) + item.status.slice(1).toLowerCase()}
                           </span>
                         </div>
                         <span className="text-xs text-sage opacity-0 group-hover:opacity-100 transition-opacity">
@@ -938,10 +989,12 @@ export default function CounsellorDashboard() {
                       <div>
                         <p className="font-mono text-xs font-semibold">{dateStr}</p>
                         <p className="text-xs text-ink/70">{timeStr}</p>
-                        <span
-                          className={`inline-block text-[10px] font-mono px-2 py-0.5 rounded mt-1.5 ${slot.isBooked ? "bg-sage text-white" : "bg-sage-light text-sage-dark"
-                            }`}
-                        >
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide mt-1.5 ${
+                          slot.isBooked ? "bg-sage-50 text-sage-dark ring-1 ring-sage/20" : "bg-sky-50 text-sky-700 ring-1 ring-sky-200/60"
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
+                            slot.isBooked ? "bg-sage" : "bg-sky-500"
+                          }`} />
                           {slot.isBooked ? "Booked" : "Open"}
                         </span>
                       </div>
@@ -949,7 +1002,7 @@ export default function CounsellorDashboard() {
                       {!slot.isBooked && (
                         <button
                           onClick={() => handleWithdrawSlot(slot.id)}
-                          className="text-xs text-red-500 hover:text-red-700 p-2 hover:bg-red-50 rounded-lg transition-colors"
+                          className="text-xs text-amber hover:text-amber/80 p-2 hover:bg-amber-light/30 rounded-lg transition-colors"
                           title="Withdraw slot"
                         >
                           Withdraw
@@ -1058,8 +1111,20 @@ export default function CounsellorDashboard() {
                           <p className="font-display text-lg text-ink">{s.visitorName}</p>
                           <p className="text-xs text-ink/60">{s.visitorEmail} · {s.visitorPhone}</p>
                         </div>
-                        <span className="font-mono text-xs px-2.5 py-1 bg-sage-light text-sage-dark font-medium rounded-full">
-                          {s.status}
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide ${
+                          s.status === "CONFIRMED" ? "bg-sage-50 text-sage-dark ring-1 ring-sage/20" :
+                          s.status === "CANCELLED" ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200/60" :
+                          s.status === "COMPLETED" ? "bg-sky-50 text-sky-700 ring-1 ring-sky-200/60" :
+                          s.status === "PENDING"   ? "bg-amber-50 text-amber ring-1 ring-amber/20" :
+                                                     "bg-ink/5 text-ink/60 ring-1 ring-ink/5"
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
+                            s.status === "CONFIRMED" ? "bg-sage" :
+                            s.status === "CANCELLED" ? "bg-rose-500" :
+                            s.status === "COMPLETED" ? "bg-sky-500" :
+                            s.status === "PENDING"   ? "bg-amber" : "bg-ink/30"
+                          }`} />
+                          {s.status.charAt(0) + s.status.slice(1).toLowerCase()}
                         </span>
                       </div>
 
@@ -1259,17 +1324,36 @@ export default function CounsellorDashboard() {
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-mono uppercase text-ink/60 mb-1.5">
-                Photograph URL
-              </label>
-              <input
-                type="url"
-                value={editPhoto}
-                onChange={(e) => setEditPhoto(e.target.value)}
-                className="w-full border border-sage/20 rounded-xl p-3 text-sm bg-paper/40 text-ink focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage"
-                placeholder="https://example.com/photo.jpg"
-              />
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <div className="flex-1 w-full">
+                <label className="block text-xs font-mono uppercase text-ink/60 mb-1.5">
+                  Photograph URL
+                </label>
+                <input
+                  type="url"
+                  value={editPhoto}
+                  onChange={(e) => setEditPhoto(e.target.value)}
+                  className="w-full border border-sage/20 rounded-xl p-3 text-sm bg-paper/40 text-ink focus:outline-none focus:ring-2 focus:ring-sage/20 focus:border-sage"
+                  placeholder="https://example.com/photo.jpg"
+                />
+              </div>
+              <div className="shrink-0 flex flex-col items-center">
+                <p className="text-[10px] font-mono uppercase text-ink/40 mb-1.5 self-start">Preview</p>
+                {editPhoto ? (
+                  <img
+                    src={editPhoto}
+                    alt="Profile Preview"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                    className="w-12 h-12 rounded-full object-cover border border-sage/20 ring-2 ring-sage/10"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-sage-light flex items-center justify-center font-display text-sm text-sage-dark border border-sage/20 ring-2 ring-sage/10">
+                    {(counsellor.name || "?").split(" ").map((w) => w[0]).slice(0, 2).join("")}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="pt-4 border-t border-sage/10">
@@ -1334,10 +1418,19 @@ export default function CounsellorDashboard() {
                   <span className="text-ink/40">Receipt Number:</span>
                   <span className="font-semibold text-sage-dark">REC-2026-{(selectedRecord.id).slice(0, 6).toUpperCase()}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between items-center">
                   <span className="text-ink/40">Transaction Status:</span>
-                  <span className="px-2 py-0.5 bg-sage-light text-sage-dark text-[10px] rounded font-bold uppercase">
-                    {selectedRecord.status}
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide ${
+                    selectedRecord.status === "COMPLETED" || selectedRecord.status === "SUCCESS" || selectedRecord.status === "CONFIRMED" ? "bg-sage-50 text-sage-dark ring-1 ring-sage/20" :
+                    selectedRecord.status === "FAILED" || selectedRecord.status === "CANCELLED" ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200/60" :
+                    "bg-amber-50 text-amber ring-1 ring-amber/20"
+                  }`}>
+                    <span className={`w-1 h-1 rounded-full mr-1 ${
+                      selectedRecord.status === "COMPLETED" || selectedRecord.status === "SUCCESS" || selectedRecord.status === "CONFIRMED" ? "bg-sage" :
+                      selectedRecord.status === "FAILED" || selectedRecord.status === "CANCELLED" ? "bg-rose-500" :
+                      "bg-amber"
+                    }`} />
+                    {selectedRecord.status.charAt(0) + selectedRecord.status.slice(1).toLowerCase()}
                   </span>
                 </div>
                 <div className="flex justify-between">

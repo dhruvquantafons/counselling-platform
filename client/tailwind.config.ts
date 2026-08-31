@@ -5,8 +5,8 @@ export default {
   theme: {
     extend: {
       colors: {
-        paper: "#F7F5F0",
-        cream: "#F7F5F0",
+        paper: "#ECEADE",
+        cream: "#ECEADE",
         ink: "#232C26",
         sage: { DEFAULT: "#4A6355", light: "#E3E9E1", dark: "#2F4438" },
         amber: { DEFAULT: "#B8804A", light: "#F0E2D2" },

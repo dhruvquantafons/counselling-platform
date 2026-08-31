@@ -26,7 +26,7 @@ type AdminCounsellor = {
   _count: { bookings: number };
 };
 
-const STATUS_TABS: { label: string; value: CounsellorStatus | "ALL" }[] = [
+const STATUS_TABS: { label: string; value: CounsellorStatus }[] = [
   { label: "Pending", value: "PENDING" },
   { label: "Active", value: "ACTIVE" },
   { label: "Suspended", value: "SUSPENDED" },
@@ -64,6 +64,9 @@ const navLinks = [
 export default function AdminCounsellorsPage() {
   const [tab, setTab] = useState<CounsellorStatus>("PENDING");
   const [counsellors, setCounsellors] = useState<AdminCounsellor[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const pageSize = 5;
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -90,17 +93,23 @@ export default function AdminCounsellorsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/admin/counsellors?status=${tab}`, { headers: adminHeaders() });
+      const params = new URLSearchParams({ status: tab, page: String(page), pageSize: String(pageSize) });
+      const res = await fetch(`${API_BASE}/api/admin/counsellors?${params}`, { headers: adminHeaders() });
       if (!res.ok) throw new Error("Failed to load counsellors");
-      setCounsellors(await res.json());
+      const data = await res.json();
+      setCounsellors(Array.isArray(data?.counsellors) ? data.counsellors : []);
+      setTotal(typeof data?.total === "number" ? data.total : 0);
     } catch (e: any) {
       setError(e.message);
+      setCounsellors([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [tab]);
+  }, [tab, page]);
 
   useEffect(() => { fetchCounsellors(); }, [fetchCounsellors]);
+  const totalPages = Math.ceil(total / pageSize);
 
   function showToast(msg: string, type: "ok" | "err") {
     setToast({ msg, type });
@@ -295,7 +304,7 @@ export default function AdminCounsellorsPage() {
           {STATUS_TABS.map((t) => (
             <button
               key={t.value}
-              onClick={() => setTab(t.value as CounsellorStatus)}
+              onClick={() => { setTab(t.value); setPage(1); }}
               className={`px-4 py-2 rounded-lg text-xs font-mono transition-colors ${
                 tab === t.value
                   ? "bg-white text-ink shadow-soft border border-sage/10"
@@ -348,125 +357,164 @@ export default function AdminCounsellorsPage() {
       )}
 
       {!loading && counsellors.length > 0 && (
-        <div className="bg-white rounded-2xl border border-sage/10 shadow-soft divide-y divide-sage/10">
-          {counsellors.map((c) => (
-            <div key={c.id} className="p-6 flex flex-col sm:flex-row sm:items-center gap-4 hover:bg-sage-light/20 transition-colors">
-              {/* Avatar + info */}
-              <div className="flex items-start gap-4 flex-1 min-w-0">
-                <div className="w-12 h-12 rounded-full bg-sage-light flex items-center justify-center font-display text-base text-sage-dark shrink-0 ring-2 ring-sage/10">
-                  {c.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-medium text-ink">{c.name}</p>
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide ${STATUS_BADGE[c.status]}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${STATUS_DOT[c.status]}`} />
-                      {statusLabel(c.status)}
-                    </span>
+        <>
+          <div className="bg-white rounded-2xl border border-sage/10 shadow-soft divide-y divide-sage/10">
+            {counsellors.map((c) => (
+              <div key={c.id} className="p-6 flex flex-col sm:flex-row sm:items-center gap-4 hover:bg-sage-light/20 transition-colors">
+                {/* Avatar + info */}
+                <div className="flex items-start gap-4 flex-1 min-w-0">
+                  <div className="w-12 h-12 rounded-full bg-sage-light flex items-center justify-center font-display text-base text-sage-dark shrink-0 ring-2 ring-sage/10">
+                    {(c.name || "?").split(" ").map((w) => w[0]).slice(0, 2).join("")}
                   </div>
-                  <p className="text-xs text-ink/55 mt-0.5">{c.email}</p>
-                  <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-ink/55">
-                    <span>{c.specialisation}</span>
-                    <span className="text-ink/20">·</span>
-                    <span className="tabular-nums">₹{Number(c.fee).toLocaleString("en-IN")}/session</span>
-                    <span className="text-ink/20">·</span>
-                    <span>{c._count.bookings} bookings</span>
-                    <span className="text-ink/20">·</span>
-                    <span>Joined {new Date(c.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}</span>
-                    <button
-                      onClick={() => copyId(c.id)}
-                      title="Copy counsellor ID"
-                      className="group inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md font-mono text-[10px] ring-1 ring-sage/10 bg-paper hover:bg-white hover:ring-sage/30 transition-colors"
-                    >
-                      <span className="text-ink/40 group-hover:text-ink/60 transition-colors">{c.id.slice(0, 8)}…</span>
-                      {copiedId === c.id ? (
-                        <svg className="w-2.5 h-2.5 text-sage-dark" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                        </svg>
-                      ) : (
-                        <svg className="w-2.5 h-2.5 text-ink/30 group-hover:text-ink/60 transition-colors" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                  {c.bio && (
-                    <p className="text-xs text-ink/45 mt-1.5 line-clamp-2 max-w-xl">{c.bio}</p>
-                  )}
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {c.languages.map((lang) => (
-                      <span key={lang} className="bg-paper border border-sage/10 text-ink/65 text-[10px] px-2 py-0.5 rounded-full font-mono">
-                        {lang}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-medium text-ink">{c.name}</p>
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold tracking-wide ${STATUS_BADGE[c.status]}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${STATUS_DOT[c.status]}`} />
+                        {statusLabel(c.status)}
                       </span>
-                    ))}
+                    </div>
+                    <p className="text-xs text-ink/55 mt-0.5">{c.email}</p>
+                    <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-ink/55">
+                      <span>{c.specialisation}</span>
+                      <span className="text-ink/20">·</span>
+                      <span className="tabular-nums">₹{Number(c.fee).toLocaleString("en-IN")}/session</span>
+                      <span className="text-ink/20">·</span>
+                      <span>{c._count?.bookings ?? 0} bookings</span>
+                      <span className="text-ink/20">·</span>
+                      <span>Joined {new Date(c.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}</span>
+                      <button
+                        onClick={() => copyId(c.id)}
+                        title="Copy counsellor ID"
+                        className="group inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md font-mono text-[10px] ring-1 ring-sage/10 bg-paper hover:bg-white hover:ring-sage/30 transition-colors"
+                      >
+                        <span className="text-ink/40 group-hover:text-ink/60 transition-colors">{c.id.slice(0, 8)}…</span>
+                        {copiedId === c.id ? (
+                          <svg className="w-2.5 h-2.5 text-sage-dark" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                          </svg>
+                        ) : (
+                          <svg className="w-2.5 h-2.5 text-ink/30 group-hover:text-ink/60 transition-colors" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 0 0-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 0 1-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 0 0-3.375-3.375h-1.5a1.125 1.125 0 0 1-1.125-1.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H9.75" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                    {c.bio && (
+                      <p className="text-xs text-ink/45 mt-1.5 line-clamp-2 max-w-xl">{c.bio}</p>
+                    )}
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {(Array.isArray(c.languages) ? c.languages : []).map((lang) => (
+                        <span key={lang} className="bg-paper border border-sage/10 text-ink/65 text-[10px] px-2 py-0.5 rounded-full font-mono">
+                          {lang}
+                        </span>
+                      ))}
+                    </div>
                   </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-wrap gap-2 shrink-0">
+                  {c.status === "PENDING" && (
+                    <>
+                      <button
+                        onClick={() => doAction(c.id, "approve")}
+                        disabled={isActing(c.id, "approve", "reject")}
+                        className="px-4 py-2 bg-sage text-white text-xs font-medium rounded-xl hover:bg-sage-dark transition-colors disabled:opacity-60 flex items-center gap-1.5"
+                      >
+                        {isActing(c.id, "approve") ? <span className="w-3 h-3 rounded-full border border-white/30 border-t-white animate-spin" /> : null}
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => doAction(c.id, "reject")}
+                        disabled={isActing(c.id, "approve", "reject")}
+                        className="px-4 py-2 border border-rose-200 text-rose-600 text-xs font-medium rounded-xl hover:bg-rose-50 transition-colors disabled:opacity-60"
+                      >
+                        Reject
+                      </button>
+                    </>
+                  )}
+                  {c.status === "ACTIVE" && (
+                    <>
+                      <button
+                        onClick={() => setSuspendModal({ id: c.id, name: c.name })}
+                        disabled={!!actionLoading}
+                        className="px-4 py-2 border border-amber/30 text-amber text-xs font-medium rounded-xl hover:bg-amber-light transition-colors disabled:opacity-60"
+                      >
+                        Suspend
+                      </button>
+                      <button
+                        onClick={() => doAction(c.id, "remove")}
+                        disabled={!!actionLoading}
+                        className="px-4 py-2 border border-rose-200 text-rose-600 text-xs font-medium rounded-xl hover:bg-rose-50 transition-colors disabled:opacity-60"
+                      >
+                        Remove
+                      </button>
+                    </>
+                  )}
+                  {c.status === "SUSPENDED" && (
+                    <>
+                      <button
+                        onClick={() => doAction(c.id, "restore")}
+                        disabled={isActing(c.id, "restore")}
+                        className="px-4 py-2 bg-sage text-white text-xs font-medium rounded-xl hover:bg-sage-dark transition-colors disabled:opacity-60"
+                      >
+                        Restore
+                      </button>
+                      <button
+                        onClick={() => doAction(c.id, "remove")}
+                        disabled={!!actionLoading}
+                        className="px-4 py-2 border border-rose-200 text-rose-600 text-xs font-medium rounded-xl hover:bg-rose-50 transition-colors disabled:opacity-60"
+                      >
+                        Remove
+                      </button>
+                    </>
+                  )}
+                  {c.status === "REMOVED" && (
+                    <span className="text-xs text-ink/30 italic px-2">No actions available</span>
+                  )}
                 </div>
               </div>
+            ))}
+          </div>
 
-              {/* Action Buttons */}
-              <div className="flex flex-wrap gap-2 shrink-0">
-                {c.status === "PENDING" && (
-                  <>
-                    <button
-                      onClick={() => doAction(c.id, "approve")}
-                      disabled={isActing(c.id, "approve", "reject")}
-                      className="px-4 py-2 bg-sage text-white text-xs font-medium rounded-xl hover:bg-sage-dark transition-colors disabled:opacity-60 flex items-center gap-1.5"
-                    >
-                      {isActing(c.id, "approve") ? <span className="w-3 h-3 rounded-full border border-white/30 border-t-white animate-spin" /> : null}
-                      Approve
-                    </button>
-                    <button
-                      onClick={() => doAction(c.id, "reject")}
-                      disabled={isActing(c.id, "approve", "reject")}
-                      className="px-4 py-2 border border-rose-200 text-rose-600 text-xs font-medium rounded-xl hover:bg-rose-50 transition-colors disabled:opacity-60"
-                    >
-                      Reject
-                    </button>
-                  </>
-                )}
-                {c.status === "ACTIVE" && (
-                  <>
-                    <button
-                      onClick={() => setSuspendModal({ id: c.id, name: c.name })}
-                      disabled={!!actionLoading}
-                      className="px-4 py-2 border border-amber/30 text-amber text-xs font-medium rounded-xl hover:bg-amber-light transition-colors disabled:opacity-60"
-                    >
-                      Suspend
-                    </button>
-                    <button
-                      onClick={() => doAction(c.id, "remove")}
-                      disabled={!!actionLoading}
-                      className="px-4 py-2 border border-rose-200 text-rose-600 text-xs font-medium rounded-xl hover:bg-rose-50 transition-colors disabled:opacity-60"
-                    >
-                      Remove
-                    </button>
-                  </>
-                )}
-                {c.status === "SUSPENDED" && (
-                  <>
-                    <button
-                      onClick={() => doAction(c.id, "restore")}
-                      disabled={isActing(c.id, "restore")}
-                      className="px-4 py-2 bg-sage text-white text-xs font-medium rounded-xl hover:bg-sage-dark transition-colors disabled:opacity-60"
-                    >
-                      Restore
-                    </button>
-                    <button
-                      onClick={() => doAction(c.id, "remove")}
-                      disabled={!!actionLoading}
-                      className="px-4 py-2 border border-rose-200 text-rose-600 text-xs font-medium rounded-xl hover:bg-rose-50 transition-colors disabled:opacity-60"
-                    >
-                      Remove
-                    </button>
-                  </>
-                )}
-                {c.status === "REMOVED" && (
-                  <span className="text-xs text-ink/30 italic px-2">No actions available</span>
-                )}
+          {totalPages > 1 && (
+            <div className="mt-6 bg-white rounded-2xl border border-sage/10 shadow-soft px-5 py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <p className="text-xs text-ink/40">
+                Showing {Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} of {total} {tab.toLowerCase()} counsellors
+              </p>
+              <div className="flex items-center gap-1 flex-wrap justify-center">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1.5 rounded-lg text-xs text-ink/60 border border-sage/20 hover:bg-sage-light/40 transition-colors disabled:opacity-30"
+                >
+                  ← Prev
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).slice(
+                  Math.max(0, Math.min(page - 3, totalPages - 5)),
+                  Math.max(0, Math.min(page - 3, totalPages - 5)) + 5
+                ).map((n) => (
+                  <button key={n} onClick={() => setPage(n)}
+                    className={`min-w-[2rem] h-8 px-2 rounded-lg text-xs font-medium border transition-colors ${
+                      page === n
+                        ? "bg-sage text-white border-sage shadow-soft"
+                        : "text-ink/60 border-sage/20 hover:bg-sage-light/40"
+                    }`}>
+                    {n}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="px-3 py-1.5 rounded-lg text-xs text-ink/60 border border-sage/20 hover:bg-sage-light/40 transition-colors disabled:opacity-30"
+                >
+                  Next →
+                </button>
               </div>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       {/* ── Add Counsellor Modal ──────────────────────────────────────── */}

@@ -63,9 +63,22 @@ export default function AdminPage() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [prevSummary, setPrevSummary] = useState<SummaryData | null>(null);
   const [recentBookings, setRecentBookings] = useState<RecentBooking[]>([]);
+  const [bookingsTotal, setBookingsTotal] = useState(0);
+  const [bookingsPage, setBookingsPage] = useState(1);
   const [pendingApprovals, setPendingApprovals] = useState<CounsellorApproval[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const pageSize = 5;
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setBookingsPage(1);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
 
   const fetchSummary = useCallback(async (f: string, t: string) => {
     const res = await fetch(`${API_BASE}/api/admin/reports/summary?from=${f}&to=${t}`, { headers: adminHeaders() });
@@ -85,10 +98,14 @@ export default function AdminPage() {
       const prevFromStr = prevFrom.toISOString().slice(0, 10);
       const prevToStr = prevTo.toISOString().slice(0, 10);
 
+      const bookParams = new URLSearchParams({ page: String(bookingsPage), pageSize: String(pageSize) });
+      if (debouncedSearch) {
+        bookParams.set("search", debouncedSearch);
+      }
       const [cur, bookRes, appRes] = await Promise.all([
         fetchSummary(from, to),
-        fetch(`${API_BASE}/api/admin/bookings?pageSize=5`, { headers: adminHeaders() }),
-        fetch(`${API_BASE}/api/admin/counsellors?status=PENDING`, { headers: adminHeaders() }).catch(() => null),
+        fetch(`${API_BASE}/api/admin/bookings?${bookParams.toString()}`, { headers: adminHeaders() }),
+        fetch(`${API_BASE}/api/admin/counsellors?status=PENDING&pageSize=50`, { headers: adminHeaders() }).catch(() => null),
       ]);
 
       setSummary(cur);
@@ -102,20 +119,27 @@ export default function AdminPage() {
 
       if (bookRes.ok) {
         const data = await bookRes.json();
-        setRecentBookings(data.bookings || []);
+        setRecentBookings(Array.isArray(data?.bookings) ? data.bookings : []);
+        setBookingsTotal(typeof data?.total === "number" ? data.total : 0);
+      } else {
+        setRecentBookings([]);
+        setBookingsTotal(0);
       }
       if (appRes && appRes.ok) {
         const data = await appRes.json();
-        setPendingApprovals(Array.isArray(data) ? data : []);
+        setPendingApprovals(Array.isArray(data) ? data : (data?.counsellors || []));
       } else {
         setPendingApprovals([]);
       }
     } catch (e: any) {
       setError(e.message || "Could not load dashboard data");
+      setRecentBookings([]);
+      setBookingsTotal(0);
+      setPendingApprovals([]);
     } finally {
       setLoading(false);
     }
-  }, [from, to, fetchSummary]);
+  }, [from, to, fetchSummary, bookingsPage, pageSize, debouncedSearch]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -189,7 +213,7 @@ export default function AdminPage() {
     );
   };
 
-  const cardAccent = (variant: "bookings" | "revenue" | "cancellations" | "noShows", val?: number) => {
+  const cardAccent = (variant: "bookings" | "revenue" | "cancellations", val?: number) => {
     switch (variant) {
       case "revenue":
         return {
@@ -210,18 +234,6 @@ export default function AdminPage() {
             : "bg-gradient-to-r from-amber to-amber-600",
         };
       }
-      case "noShows": {
-        const hasAny = (val ?? 0) > 0;
-        return {
-          ring: hasAny ? "ring-1 ring-rose-300/60" : "ring-1 ring-ink/10",
-          iconBg: hasAny
-            ? "bg-gradient-to-br from-rose-500 to-rose-700 text-white shadow-soft"
-            : "bg-ink/5 text-ink/50 ring-1 ring-ink/10",
-          accentBar: hasAny
-            ? "bg-gradient-to-r from-rose-500 to-rose-700"
-            : "bg-ink/10",
-        };
-      }
       case "bookings":
       default:
         return {
@@ -233,6 +245,7 @@ export default function AdminPage() {
   };
 
   const pendingCount = pendingApprovals.length;
+  const totalBookingsPages = Math.max(1, Math.ceil(bookingsTotal / pageSize));
 
   return (
     <main className="max-w-7xl mx-auto px-6 py-10 animate-fade-in">
@@ -260,33 +273,36 @@ export default function AdminPage() {
       </div>
 
       {/* Date Range Selector */}
-      <div className="bg-white rounded-2xl border border-sage/10 shadow-soft p-5 mb-6 flex flex-wrap items-center gap-4">
-        <p className="text-xs font-mono text-ink/50 uppercase tracking-wide">Period</p>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="border border-sage/20 rounded-xl px-3 py-2 text-sm text-ink bg-paper/50 focus:outline-none focus:ring-2 focus:ring-sage/20"
-          />
-          <span className="text-ink/30 text-sm">→</span>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="border border-sage/20 rounded-xl px-3 py-2 text-sm text-ink bg-paper/50 focus:outline-none focus:ring-2 focus:ring-sage/20"
-          />
+      <div className="bg-white rounded-2xl border border-sage/10 shadow-soft p-5 mb-6 flex flex-col sm:flex-wrap sm:flex-row items-stretch sm:items-center gap-4">
+        <p className="text-xs font-mono text-ink/50 uppercase tracking-wide shrink-0">Period</p>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto flex-1 sm:flex-none min-w-0">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="w-full sm:w-auto border border-sage/20 rounded-xl px-3 py-2 text-sm text-ink bg-paper/50 focus:outline-none focus:ring-2 focus:ring-sage/20"
+            />
+            <span className="hidden sm:inline text-ink/30 text-sm self-center">→</span>
+            <span className="sm:hidden text-ink/30 text-sm self-center">to</span>
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="w-full sm:w-auto border border-sage/20 rounded-xl px-3 py-2 text-sm text-ink bg-paper/50 focus:outline-none focus:ring-2 focus:ring-sage/20"
+            />
+          </div>
         </div>
         <button
           onClick={fetchData}
-          className="bg-sage text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-sage-dark transition-colors"
+          className="bg-sage text-white px-4 py-2 rounded-xl text-xs font-medium hover:bg-sage-dark transition-colors w-full sm:w-auto"
         >
           Apply
         </button>
         <button
           onClick={exportCsv}
           disabled={!summary}
-          className="ml-auto flex items-center gap-1.5 border border-sage/20 text-ink/70 px-4 py-2 rounded-xl text-xs font-medium hover:bg-sage-light/40 transition-colors disabled:opacity-40"
+          className="flex items-center justify-center gap-1.5 border border-sage/20 text-ink/70 px-4 py-2 rounded-xl text-xs font-medium hover:bg-sage-light/40 transition-colors disabled:opacity-40 w-full sm:w-auto sm:ml-auto"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -300,7 +316,7 @@ export default function AdminPage() {
       )}
 
       {/* Metric Cards */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         {[
           (() => {
             const variant: "bookings" = "bookings";
@@ -355,25 +371,6 @@ export default function AdminPage() {
               icon: (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5l10.5 9M17.25 7.5L6.75 16.5M22 12a10 10 0 11-20 0 10 10 0 0120 0z" />
-                </svg>
-              ),
-              trend: trendChip(pctChange(val, prev), false),
-            };
-          })(),
-          (() => {
-            const variant: "noShows" = "noShows";
-            const val = summary?.noShows ?? 0;
-            const prev = prevSummary?.noShows;
-            const accent = cardAccent(variant, val);
-            return {
-              variant,
-              label: "No-Shows",
-              value: loading ? "—" : String(val),
-              sub: val > 0 ? "Flag missed sessions" : "No missed sessions",
-              accent,
-              icon: (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3h.008v.008H12v-.008zM10.5 3.75h3m-11.25 8.25a9.75 9.75 0 1019.5 0 9.75 9.75 0 00-19.5 0zM9 15.75l3-3 3 3" />
                 </svg>
               ),
               trend: trendChip(pctChange(val, prev), false),
@@ -466,85 +463,160 @@ export default function AdminPage() {
 
       {/* Recent Bookings */}
       <div className="bg-white rounded-2xl border border-sage/10 overflow-hidden shadow-soft">
-        <div className="px-6 py-5 border-b border-sage/10 flex items-center justify-between gap-3">
+        <div className="px-5 py-4 border-b border-sage/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <p className="text-xs font-mono text-ink/40 uppercase tracking-wide mb-0.5">Recent bookings</p>
             <p className="text-sm text-ink/60">Latest across all counsellors</p>
           </div>
-          <Link href="/admin/bookings" className="text-xs font-medium text-sage-dark hover:text-sage transition-colors inline-flex items-center gap-1">
-            View all
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-            </svg>
-          </Link>
+          <div className="flex items-center gap-4 flex-1 max-w-md justify-end">
+            <div className="relative w-full max-w-[240px] flex items-center">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-ink/40">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </span>
+              <input
+                type="text"
+                placeholder="Search bookings..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-8 pr-20 py-1.5 border border-sage/20 rounded-xl text-xs text-ink bg-paper/30 placeholder-ink/40 focus:outline-none focus:ring-2 focus:ring-sage/20 focus:bg-white transition-all"
+              />
+              <button
+                onClick={() => setDebouncedSearch(searchTerm)}
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 p-1 rounded hover:bg-sage-light/40 transition-colors"
+                title="Search"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </button>
+            </div>
+            <Link href="/admin/bookings" className="text-xs font-medium text-sage-dark hover:text-sage transition-colors inline-flex items-center gap-1 shrink-0">
+              View all
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+              </svg>
+            </Link>
+          </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-[11px] font-mono uppercase tracking-wider text-ink/40 bg-paper/40 border-b border-sage/10">
-                <th className="px-6 py-3 font-semibold">Visitor</th>
-                <th className="px-4 py-3 font-semibold">Counsellor</th>
-                <th className="px-4 py-3 font-semibold">Date &amp; Time</th>
-                <th className="px-4 py-3 font-semibold">Status</th>
-                <th className="px-6 py-3 font-semibold text-right">Amount</th>
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col className="w-[30%]" />
+            <col className="w-[20%]" />
+            <col className="w-[24%]" />
+            <col className="w-[14%]" />
+            <col className="w-[12%]" />
+          </colgroup>
+          <thead>
+            <tr className="text-left text-[10px] font-mono uppercase tracking-wider text-ink/40 bg-paper/40 border-b border-sage/10">
+              <th className="px-3 py-3 font-semibold">Visitor</th>
+              <th className="px-3 py-3 font-semibold truncate">Counsellor</th>
+              <th className="px-3 py-3 font-semibold truncate">Date &amp; Time</th>
+              <th className="px-3 py-3 font-semibold truncate">Status</th>
+              <th className="px-3 py-3 font-semibold text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-sage/10">
+            {loading && Array.from({ length: 8 }).map((_, i) => (
+              <tr key={i} className="animate-pulse">
+                {Array.from({ length: 5 }).map((_, j) => (
+                  <td key={j} className="px-3 py-3"><div className="h-3 bg-sage-light/40 rounded w-3/4" /></td>
+                ))}
               </tr>
-            </thead>
-            <tbody className="divide-y divide-sage/10">
-              {loading && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-ink/40">Loading…</td>
-                </tr>
-              )}
-              {!loading && recentBookings.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-ink/40">No bookings found yet.</td>
-                </tr>
-              )}
-              {!loading && recentBookings.map((b) => (
-                <tr key={b.id} className="hover:bg-sage-light/20 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-full bg-sage-light flex items-center justify-center font-display text-[13px] text-sage-dark shrink-0 ring-1 ring-sage/10">
-                        {b.visitorName.split(" ").map((w) => w[0]).slice(0, 2).join("")}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-ink truncate">{b.visitorName}</p>
-                        <p className="text-[11px] text-ink/40 font-mono truncate">ID: {b.id.slice(0, 8)}…</p>
-                      </div>
+            ))}
+            {!loading && recentBookings.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-3 py-12 text-center text-sm text-ink/40">
+                  {debouncedSearch ? "No bookings found matching your search." : "No bookings found yet."}
+                </td>
+              </tr>
+            )}
+            {!loading && recentBookings.map((b) => (
+              <tr key={b.id} className="hover:bg-sage-light/20 transition-colors">
+                <td className="px-3 py-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-sage-light flex items-center justify-center font-display text-[11px] text-sage-dark shrink-0 ring-1 ring-sage/10">
+                      {(b.visitorName || "?").split(" ").map((w: string) => w[0]).slice(0, 2).join("")}
                     </div>
-                  </td>
-                  <td className="px-4 py-4 text-sm text-ink/75 whitespace-nowrap">{b.counsellor.name}</td>
-                  <td className="px-4 py-4 text-sm text-ink/70 whitespace-nowrap">
-                    {new Date(b.startTime).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                    <span className="text-ink/30 mx-1">·</span>
-                    <span className="font-mono text-xs">
-                      {new Date(b.startTime).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  </td>
-                  <td className="px-4 py-4 whitespace-nowrap">{statusBadge(b.status)}</td>
-                  <td className="px-6 py-4 text-right whitespace-nowrap">
-                    {b.payment ? (
-                      <div className="flex flex-col items-end gap-0.5">
-                        <span className="font-mono text-sm font-semibold text-ink tabular-nums">
-                          ₹{Number(b.payment.amount).toLocaleString("en-IN")}
-                        </span>
-                        <span className={`text-[10px] font-mono uppercase tracking-wide ${
-                          b.payment.status === "SUCCESS" ? "text-sage-dark" :
-                          b.payment.status === "FAILED"  ? "text-rose-600" : "text-ink/40"
-                        }`}>
-                          {b.payment.status.toLowerCase()}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-ink/30 italic">—</span>
-                    )}
-                  </td>
-                </tr>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-ink truncate">{b.visitorName || "—"}</p>
+                      <p className="text-[10px] text-ink/40 font-mono truncate">ID: {(b.id || "").slice(0, 8)}…</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-3 py-3 text-xs text-ink/75 truncate">{b.counsellor?.name || "—"}</td>
+                <td className="px-3 py-3 text-ink/70 whitespace-nowrap">
+                  <span className="text-[11px]">{new Date(b.startTime).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</span>
+                  <span className="text-ink/30 mx-0.5">·</span>
+                  <span className="font-mono text-[10px]">
+                    {new Date(b.startTime).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide ${
+                    b.status === "CONFIRMED" ? "bg-sage-50 text-sage-dark ring-1 ring-sage/20" :
+                    b.status === "CANCELLED" ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200/60" :
+                    b.status === "COMPLETED" ? "bg-amber-50 text-amber ring-1 ring-amber/20" :
+                    b.status === "PENDING"   ? "bg-amber-50 text-amber ring-1 ring-amber/20" :
+                                              "bg-ink/5 text-ink/60 ring-1 ring-ink/5"
+                  }`}>
+                    <span className={`w-1 h-1 rounded-full mr-1 ${
+                      b.status === "CONFIRMED" ? "bg-sage" :
+                      b.status === "CANCELLED" ? "bg-rose-500" :
+                      b.status === "COMPLETED" ? "bg-amber" :
+                      b.status === "PENDING"   ? "bg-amber" : "bg-ink/30"
+                    }`} />
+                    {(b.status || "—").charAt(0) + (b.status || "—").slice(1).toLowerCase()}
+                  </span>
+                </td>
+                <td className="px-3 py-3 text-right whitespace-nowrap">
+                  {b.payment ? (
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span className="font-mono text-xs font-semibold text-ink tabular-nums">
+                        ₹{Number(b.payment.amount).toLocaleString("en-IN")}
+                      </span>
+                      <span className={`text-[9px] font-mono uppercase tracking-wide ${
+                        b.payment.status === "SUCCESS" ? "text-sage-dark" :
+                        b.payment.status === "FAILED"  ? "text-rose-600" : "text-ink/40"
+                      }`}>
+                        {(b.payment.status || "").toLowerCase()}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-[10px] text-ink/30 italic">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {totalBookingsPages > 1 && (
+          <div className="px-5 py-4 border-t border-sage/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <p className="text-xs text-ink/40">Showing {Math.min((bookingsPage - 1) * pageSize + 1, bookingsTotal)}–{Math.min(bookingsPage * pageSize, bookingsTotal)} of {bookingsTotal}</p>
+            <div className="flex items-center gap-1 flex-wrap justify-center">
+              <button onClick={() => setBookingsPage((p) => Math.max(1, p - 1))} disabled={bookingsPage === 1}
+                className="px-3 py-1.5 rounded-lg text-xs text-ink/60 border border-sage/20 hover:bg-sage-light/40 transition-colors disabled:opacity-30">← Prev</button>
+              {Array.from({ length: totalBookingsPages }, (_, i) => i + 1).slice(
+                Math.max(0, Math.min(bookingsPage - 3, totalBookingsPages - 5)),
+                Math.max(0, Math.min(bookingsPage - 3, totalBookingsPages - 5)) + 5
+              ).map((n) => (
+                <button key={n} onClick={() => setBookingsPage(n)}
+                  className={`min-w-[2rem] h-8 px-2 rounded-lg text-xs font-medium border transition-colors ${
+                    bookingsPage === n
+                      ? "bg-sage text-white border-sage shadow-soft"
+                      : "text-ink/60 border-sage/20 hover:bg-sage-light/40"
+                  }`}>
+                  {n}
+                </button>
               ))}
-            </tbody>
-          </table>
-        </div>
+              <button onClick={() => setBookingsPage((p) => Math.min(totalBookingsPages, p + 1))} disabled={bookingsPage === totalBookingsPages}
+                className="px-3 py-1.5 rounded-lg text-xs text-ink/60 border border-sage/20 hover:bg-sage-light/40 transition-colors disabled:opacity-30">Next →</button>
+            </div>
+          </div>
+        )}
       </div>
     </main>
   );

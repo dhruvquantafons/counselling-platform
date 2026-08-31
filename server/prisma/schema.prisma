@@ -96,6 +96,7 @@ model StaticPage {
   slug      String   @unique
   title     String
   body      String
+  published Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -117,4 +118,4 @@ model AuditLog {
   targetId   String
   detail     String?
   createdAt  DateTime @default(now())
-}
+}

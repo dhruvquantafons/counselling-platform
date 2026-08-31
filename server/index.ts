@@ -1125,7 +1125,6 @@ app.post('/api/bookings/:id/reschedule', async (req, res) => {
 })
 
 const PORT = process.env.PORT || 4000
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Section 3.7: Platform Administration Panel APIs
@@ -1152,19 +1151,28 @@ async function writeAuditLog(action: string, targetType: string, targetId: strin
 
 // GET /api/admin/counsellors?status=PENDING|ACTIVE|SUSPENDED|REMOVED
 app.get('/api/admin/counsellors', requireAdmin, async (req, res) => {
-  const { status } = req.query as { status?: string }
+  const { status, page = '1', pageSize = '20' } = req.query as { status?: string; page?: string; pageSize?: string }
+  const p = parseInt(page) || 1
+  const ps = Math.min(parseInt(pageSize) || 20, 100)
+  const skip = (p - 1) * ps
+  const take = ps
   const where = status ? { status: status as any } : {}
-  const counsellors = await prisma.counsellor.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-    select: {
-      id: true, name: true, email: true, specialisation: true,
-      languages: true, fee: true, bio: true, approved: true,
-      status: true, createdAt: true,
-      _count: { select: { bookings: true } },
-    },
-  })
-  res.json(counsellors)
+  const [counsellors, total] = await Promise.all([
+    prisma.counsellor.findMany({
+      where,
+      skip,
+      take,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, name: true, email: true, specialisation: true,
+        languages: true, fee: true, bio: true, approved: true,
+        status: true, createdAt: true,
+        _count: { select: { bookings: true } },
+      },
+    }),
+    prisma.counsellor.count({ where }),
+  ])
+  res.json({ counsellors, total, page: p, pageSize: ps })
 })
 
 // POST /api/admin/counsellors — Admin creates counsellor directly (approved, ACTIVE)
@@ -1324,9 +1332,9 @@ app.delete('/api/admin/counsellors/:id', requireAdmin, async (req, res) => {
 
 // ─── Booking Register ─────────────────────────────────────────────────────────
 
-// GET /api/admin/bookings?counsellorId=&dateFrom=&dateTo=&status=&paymentStatus=&page=&pageSize=
+// GET /api/admin/bookings?counsellorId=&dateFrom=&dateTo=&status=&paymentStatus=&page=&pageSize=&search=
 app.get('/api/admin/bookings', requireAdmin, async (req, res) => {
-  const { counsellorId, dateFrom, dateTo, status, paymentStatus, page = '1', pageSize = '20' } = req.query as Record<string, string>
+  const { counsellorId, dateFrom, dateTo, status, paymentStatus, page = '1', pageSize = '20', search } = req.query as Record<string, string>
 
   const where: any = {}
   if (counsellorId) where.counsellorId = counsellorId
@@ -1337,6 +1345,17 @@ app.get('/api/admin/bookings', requireAdmin, async (req, res) => {
     if (dateTo) where.startTime.lte = new Date(dateTo)
   }
   if (paymentStatus) where.payment = { status: paymentStatus }
+
+  if (search) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search.trim())
+    where.OR = [
+      { visitorName: { contains: search, mode: 'insensitive' } },
+      { counsellor: { name: { contains: search, mode: 'insensitive' } } }
+    ]
+    if (isUuid) {
+      where.OR.push({ id: search.trim() })
+    }
+  }
 
   const skip = (parseInt(page) - 1) * parseInt(pageSize)
   const take = parseInt(pageSize)
@@ -1578,16 +1597,24 @@ app.post('/api/admin/payments/:id/refund', requireAdmin, async (req, res) => {
 
 // ─── Static Pages CRUD ────────────────────────────────────────────────────────
 
-app.get('/api/admin/static-pages', requireAdmin, async (_req, res) => {
-  const pages = await prisma.staticPage.findMany({ orderBy: { createdAt: 'desc' } })
-  res.json(pages)
+app.get('/api/admin/static-pages', requireAdmin, async (req, res) => {
+  const { page = '1', pageSize = '20' } = req.query as { page?: string; pageSize?: string }
+  const p = parseInt(page) || 1
+  const ps = Math.min(parseInt(pageSize) || 20, 100)
+  const skip = (p - 1) * ps
+  const take = ps
+  const [pages, total] = await Promise.all([
+    prisma.staticPage.findMany({ orderBy: { createdAt: 'desc' }, skip, take }),
+    prisma.staticPage.count(),
+  ])
+  res.json({ pages, total, page: p, pageSize: ps })
 })
 
 app.post('/api/admin/static-pages', requireAdmin, async (req, res) => {
-  const { slug, title, body } = req.body
+  const { slug, title, body, published } = req.body
   if (!slug || !title || !body) return res.status(400).json({ error: 'slug, title and body are required' })
   try {
-    const page = await prisma.staticPage.create({ data: { slug, title, body } })
+    const page = await prisma.staticPage.create({ data: { slug, title, body, published: published ?? false } })
     await writeAuditLog('CREATE_STATIC_PAGE', 'StaticPage', page.id, `Created page: ${slug}`)
     res.json(page)
   } catch {
@@ -1597,11 +1624,19 @@ app.post('/api/admin/static-pages', requireAdmin, async (req, res) => {
 
 app.patch('/api/admin/static-pages/:id', requireAdmin, async (req, res) => {
   const { id } = req.params
-  const { title, body, slug } = req.body
+  const { title, body, slug, published } = req.body
   const page = await prisma.staticPage.findUnique({ where: { id } })
   if (!page) return res.status(404).json({ error: 'Page not found' })
 
-  const updated = await prisma.staticPage.update({ where: { id }, data: { title, body, slug } })
+  const updated = await prisma.staticPage.update({
+    where: { id },
+    data: {
+      ...(title !== undefined && { title }),
+      ...(body !== undefined && { body }),
+      ...(slug !== undefined && { slug }),
+      ...(published !== undefined && { published }),
+    }
+  })
   await writeAuditLog('EDIT_STATIC_PAGE', 'StaticPage', id, `Edited page: ${updated.slug}`)
   res.json(updated)
 })
@@ -1616,11 +1651,36 @@ app.delete('/api/admin/static-pages/:id', requireAdmin, async (req, res) => {
   res.json({ ok: true })
 })
 
+// ─── Public Static Pages ──────────────────────────────────────────────────────
+
+app.get('/api/static-pages/:slug', async (req, res) => {
+  const { slug } = req.params
+  const page = await prisma.staticPage.findFirst({
+    where: { slug, published: true },
+  })
+  if (!page) return res.status(404).json({ error: 'Not found' })
+  res.json(page)
+})
+
 // ─── FAQs CRUD ────────────────────────────────────────────────────────────────
 
-app.get('/api/admin/faqs', requireAdmin, async (_req, res) => {
+// Public endpoint — no auth required
+app.get('/api/faqs', async (req, res) => {
   const faqs = await prisma.faq.findMany({ orderBy: { order: 'asc' } })
-  res.json(faqs)
+  res.json({ faqs })
+})
+
+app.get('/api/admin/faqs', requireAdmin, async (req, res) => {
+  const { page = '1', pageSize = '20' } = req.query as { page?: string; pageSize?: string }
+  const p = parseInt(page) || 1
+  const ps = Math.min(parseInt(pageSize) || 20, 100)
+  const skip = (p - 1) * ps
+  const take = ps
+  const [faqs, total] = await Promise.all([
+    prisma.faq.findMany({ orderBy: { order: 'asc' }, skip, take }),
+    prisma.faq.count(),
+  ])
+  res.json({ faqs, total, page: p, pageSize: ps })
 })
 
 app.post('/api/admin/faqs', requireAdmin, async (req, res) => {
@@ -1707,3 +1767,5 @@ app.get('/api/admin/audit-log', requireAdmin, async (req, res) => {
 
   res.json({ logs, total, page: parseInt(page), pageSize: parseInt(pageSize) })
 })
+
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
