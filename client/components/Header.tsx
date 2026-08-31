@@ -1,13 +1,48 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
+import NotificationFeed from "@/app/components/NotificationFeed";
 
 const nav = [
   { label: "Find A Counsellor", href: "/directory" },
   { label: "How It Works", href: "/#how-it-works" },
   { label: "For Counsellors", href: "/counsellor/login" },
 ];
+
+function VisitorNotificationBell() {
+  const searchParams = useSearchParams();
+  const queryBookingId = searchParams.get("bookingId");
+  const [visitorBookingId, setVisitorBookingId] = useState<string | null>(null);
+  const [visitorEmail, setVisitorEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    function syncVisitorInfo() {
+      if (typeof window !== "undefined") {
+        const id = queryBookingId || localStorage.getItem("visitorBookingId");
+        const email = localStorage.getItem("visitorEmail");
+        if (queryBookingId && queryBookingId !== localStorage.getItem("visitorBookingId")) {
+          localStorage.setItem("visitorBookingId", queryBookingId);
+        }
+        setVisitorBookingId(id);
+        setVisitorEmail(email);
+      }
+    }
+
+    syncVisitorInfo();
+    window.addEventListener("storage", syncVisitorInfo);
+    return () => window.removeEventListener("storage", syncVisitorInfo);
+  }, [queryBookingId]);
+
+  return (
+    <NotificationFeed
+      bookingId={visitorBookingId || undefined}
+      visitorEmail={visitorEmail || undefined}
+      role="visitor"
+    />
+  );
+}
 
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -55,6 +90,9 @@ export default function Header() {
         </nav>
 
         <div className="hidden md:flex items-center gap-3">
+          <Suspense fallback={<NotificationFeed role="visitor" />}>
+            <VisitorNotificationBell />
+          </Suspense>
           <Link
             href="/directory"
             className="text-sm font-medium text-sage-dark hover:text-sage transition-colors duration-150"

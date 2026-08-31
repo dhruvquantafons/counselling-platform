@@ -60,6 +60,8 @@ model Booking {
   createdAt            DateTime      @default(now())
 
   payment              Payment?
+  notifications        Notification[]
+  pushSubscriptions    PushSubscription[]
 
   @@unique([counsellorId, startTime]) // enforced again here at booking level
 }
@@ -87,6 +89,58 @@ enum PaymentStatus {
   SUCCESS
   FAILED
   REFUNDED
+}
+
+model Notification {
+  id           String              @id @default(uuid())
+  bookingId    String
+  booking      Booking             @relation(fields: [bookingId], references: [id])
+  type         NotificationType
+  channel      NotificationChannel
+  scheduledFor DateTime
+  status       NotificationStatus  @default(PENDING)
+  isRead       Boolean             @default(false)
+  readAt       DateTime?
+  sentAt       DateTime?
+  error        String?
+  createdAt    DateTime            @default(now())
+
+  @@index([status, scheduledFor])
+  @@index([bookingId, channel])
+}
+
+enum NotificationType {
+  PAYMENT_RECEIPT
+  BOOKING_CONFIRMATION
+  REMINDER_24H
+  REMINDER_1H
+  REMINDER_10MIN
+  RESCHEDULE
+  CANCELLATION
+  REFUND
+}
+
+enum NotificationChannel {
+  EMAIL
+  PUSH
+  IN_APP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  bookingId String
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
 }
 
 // ─── Section 3.7: Admin Panel Models ──────────────────────────────────────────

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import NotificationFeed from "@/app/components/NotificationFeed";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -532,6 +533,7 @@ export default function CounsellorDashboard() {
         </div>
 
         <div className="flex items-center gap-3">
+          <NotificationFeed counsellorId={counsellor.id} role="counsellor" />
           <button
             onClick={handleLogout}
             className="text-xs font-mono text-ink/60 hover:text-ink border border-sage/20 rounded-full px-4 py-2 hover:bg-sage-light/50 transition-colors"

@@ -9,7 +9,10 @@ import jwt from 'jsonwebtoken'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import cron from 'node-cron'
 import { generateReceiptHtml, generateReceiptNumber } from './receipt.js'
+import { processPendingNotifications } from './notificationWorker.js'
+import { getVapidPublicKey } from './pushService.js'
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL })
 const prisma = new PrismaClient({ adapter })
@@ -488,6 +491,46 @@ app.patch('/api/bookings/:bookingId/slot', async (req, res) => {
 
   // Atomic: mark slot booked + update booking's real startTime, status, and generate roomId
   const generatedRoomId = `room_${crypto.randomUUID().replace(/-/g, '')}`
+  const now = new Date()
+  const startTime = new Date(availability.startTime)
+
+  const notificationsToCreate: Array<{
+    bookingId: string
+    type: 'BOOKING_CONFIRMATION' | 'REMINDER_24H' | 'REMINDER_1H' | 'REMINDER_10MIN'
+    channel: 'EMAIL' | 'PUSH' | 'IN_APP'
+    scheduledFor: Date
+  }> = [
+      { bookingId, type: 'BOOKING_CONFIRMATION', channel: 'EMAIL', scheduledFor: now },
+      { bookingId, type: 'BOOKING_CONFIRMATION', channel: 'PUSH', scheduledFor: now },
+      { bookingId, type: 'BOOKING_CONFIRMATION', channel: 'IN_APP', scheduledFor: now },
+    ]
+
+  const time24h = new Date(startTime.getTime() - 24 * 60 * 60 * 1000)
+  const time1h = new Date(startTime.getTime() - 60 * 60 * 1000)
+  const time10m = new Date(startTime.getTime() - 10 * 60 * 1000)
+
+  if (time24h > now) {
+    notificationsToCreate.push(
+      { bookingId, type: 'REMINDER_24H', channel: 'EMAIL', scheduledFor: time24h },
+      { bookingId, type: 'REMINDER_24H', channel: 'PUSH', scheduledFor: time24h },
+      { bookingId, type: 'REMINDER_24H', channel: 'IN_APP', scheduledFor: time24h }
+    )
+  }
+  if (time1h > now) {
+    notificationsToCreate.push(
+      { bookingId, type: 'REMINDER_1H', channel: 'EMAIL', scheduledFor: time1h },
+      { bookingId, type: 'REMINDER_1H', channel: 'PUSH', scheduledFor: time1h },
+      { bookingId, type: 'REMINDER_1H', channel: 'IN_APP', scheduledFor: time1h }
+    )
+  }
+  if (time10m > now) {
+    notificationsToCreate.push(
+      { bookingId, type: 'REMINDER_10MIN', channel: 'EMAIL', scheduledFor: time10m },
+      { bookingId, type: 'REMINDER_10MIN', channel: 'PUSH', scheduledFor: time10m },
+      { bookingId, type: 'REMINDER_10MIN', channel: 'IN_APP', scheduledFor: time10m }
+    )
+  }
+
   await prisma.$transaction([
     prisma.availability.update({
       where: { id: availabilityId },
@@ -502,8 +545,14 @@ app.patch('/api/bookings/:bookingId/slot', async (req, res) => {
         where: { id: booking.payment.id },
         data: { status: 'SUCCESS' },
       })
-    ] : [])
+    ] : []),
+    prisma.notification.createMany({
+      data: notificationsToCreate,
+    }),
   ])
+
+  // Process immediate notifications right away
+  processPendingNotifications(prisma).catch(() => { })
 
   res.json({ ok: true, startTime: availability.startTime, status: 'CONFIRMED', roomId: generatedRoomId })
 })
@@ -517,37 +566,43 @@ const razorpay = new Razorpay({
 
 // Step A: Create order (called when visitor clicks "Proceed to Pay")
 app.post('/api/payments/create-order', async (req, res) => {
-  const { counsellorId, name, email, phone } = req.body
+  try {
+    const { counsellorId, name, email, phone } = req.body
 
-  const counsellor = await prisma.counsellor.findUnique({ where: { id: counsellorId } })
-  if (!counsellor) return res.status(404).json({ error: 'Counsellor not found' })
+    const counsellor = await prisma.counsellor.findUnique({ where: { id: counsellorId } })
+    if (!counsellor) return res.status(404).json({ error: 'Counsellor not found' })
 
-  const order = await razorpay.orders.create({
-    amount: Number(counsellor.fee) * 100, // Razorpay expects paise
-    currency: 'INR',
-    receipt: `receipt_${Date.now()}`,
-  })
+    const order = await razorpay.orders.create({
+      amount: Number(counsellor.fee) * 100, // Razorpay expects paise
+      currency: 'INR',
+      receipt: `receipt_${Date.now()}`,
+    })
 
-  // Store a PENDING booking + payment, not yet confirmed
-  const booking = await prisma.booking.create({
-    data: {
-      counsellorId,
-      visitorName: name,
-      visitorEmail: email,
-      visitorPhone: phone,
-      startTime: new Date(), // placeholder — real slot selection happens after payment (T-008+)
-      status: 'PENDING',
-      payment: {
-        create: {
-          amount: counsellor.fee,
-          status: 'INITIATED',
-          gatewayOrderId: order.id,
+    // Store a PENDING booking + payment, not yet confirmed
+    const booking = await prisma.booking.create({
+      data: {
+        counsellorId,
+        visitorName: name,
+        visitorEmail: email,
+        visitorPhone: phone,
+        // Unique placeholder startTime to avoid (counsellorId, startTime) collision for PENDING bookings
+        startTime: new Date(Date.now() + Math.floor(Math.random() * 1000000000) + Math.floor(Math.random() * 1000000)),
+        status: 'PENDING',
+        payment: {
+          create: {
+            amount: counsellor.fee,
+            status: 'INITIATED',
+            gatewayOrderId: order.id,
+          },
         },
       },
-    },
-  })
+    })
 
-  res.json({ orderId: order.id, amount: order.amount, keyId: process.env.RAZORPAY_KEY_ID, bookingId: booking.id })
+    res.json({ orderId: order.id, amount: order.amount, keyId: process.env.RAZORPAY_KEY_ID, bookingId: booking.id })
+  } catch (err: any) {
+    console.error('[create-order] Error:', err)
+    res.status(500).json({ error: err.message || 'Failed to create payment order' })
+  }
 })
 
 // Step A2: Client payment verification (called when Razorpay modal handler fires on client)
@@ -583,6 +638,17 @@ app.post('/api/payments/verify', async (req, res) => {
     where: { id: bookingId },
     data: { status: 'CONFIRMED' },
   })
+
+  // Queue PAYMENT_RECEIPT notification (EMAIL + IN_APP)
+  const now = new Date()
+  await prisma.notification.createMany({
+    data: [
+      { bookingId, type: 'PAYMENT_RECEIPT', channel: 'EMAIL', scheduledFor: now },
+      { bookingId, type: 'PAYMENT_RECEIPT', channel: 'IN_APP', scheduledFor: now },
+    ],
+  }).catch(() => { })
+
+  processPendingNotifications(prisma).catch(() => { })
 
   res.json({ success: true, bookingId, status: 'CONFIRMED' })
 })
@@ -1032,7 +1098,7 @@ app.post('/api/bookings/:id/cancel', async (req, res) => {
 
   const booking = await prisma.booking.findUnique({
     where: { id },
-    include: { counsellor: true },
+    include: { counsellor: true, payment: true },
   })
 
   if (!booking) return res.status(404).json({ error: 'Booking not found' })
@@ -1049,7 +1115,20 @@ app.post('/api/bookings/:id/cancel', async (req, res) => {
     })
   }
 
-  // Cancel booking and unbook slot if available
+  // Trigger Razorpay API automatic refund if payment exists
+  let refundId: string | null = null
+  if (booking.payment && booking.payment.gatewayPaymentId) {
+    try {
+      const refund = await razorpay.payments.refund(booking.payment.gatewayPaymentId, {
+        amount: Number(booking.payment.amount) * 100, // paise
+      })
+      refundId = refund.id
+    } catch (refundErr: any) {
+      console.warn('[cancel] Razorpay automatic refund warning:', refundErr.message)
+    }
+  }
+
+  // Cancel booking, release slot, update payment to REFUNDED, cancel pending reminders
   await prisma.$transaction([
     prisma.booking.update({
       where: { id },
@@ -1062,13 +1141,39 @@ app.post('/api/bookings/:id/cancel', async (req, res) => {
       },
       data: { isBooked: false },
     }),
+    ...(booking.payment ? [
+      prisma.payment.update({
+        where: { id: booking.payment.id },
+        data: { status: 'REFUNDED' },
+      })
+    ] : []),
+    prisma.notification.updateMany({
+      where: { bookingId: id, status: 'PENDING' },
+      data: { status: 'CANCELLED' },
+    }),
   ])
+
+  // Queue Cancellation and Refund notifications
+  const now = new Date()
+  await prisma.notification.createMany({
+    data: [
+      { bookingId: id, type: 'CANCELLATION', channel: 'EMAIL', scheduledFor: now },
+      { bookingId: id, type: 'CANCELLATION', channel: 'PUSH', scheduledFor: now },
+      { bookingId: id, type: 'CANCELLATION', channel: 'IN_APP', scheduledFor: now },
+      { bookingId: id, type: 'REFUND', channel: 'EMAIL', scheduledFor: now },
+      { bookingId: id, type: 'REFUND', channel: 'PUSH', scheduledFor: now },
+      { bookingId: id, type: 'REFUND', channel: 'IN_APP', scheduledFor: now },
+    ],
+  }).catch(() => { })
+
+  processPendingNotifications(prisma).catch(() => { })
 
   res.json({
     success: true,
-    message: 'Booking cancelled successfully. Slot released.',
+    message: 'Booking cancelled successfully. Refund initiated & slot released.',
     bookingId: id,
     status: 'CANCELLED',
+    refundId,
   })
 })
 
@@ -1115,13 +1220,362 @@ app.post('/api/bookings/:id/reschedule', async (req, res) => {
       where: { id },
       data: { startTime: newSlot.startTime },
     }),
+    prisma.notification.updateMany({
+      where: { bookingId: id, status: 'PENDING' },
+      data: { status: 'CANCELLED' },
+    }),
   ])
+
+  // Queue RESCHEDULE notification and recalculate new REMINDER_* times
+  const newStartTime = new Date(newSlot.startTime)
+
+  const notificationsToCreate: Array<{
+    bookingId: string
+    type: 'RESCHEDULE' | 'REMINDER_24H' | 'REMINDER_1H' | 'REMINDER_10MIN'
+    channel: 'EMAIL' | 'PUSH' | 'IN_APP'
+    scheduledFor: Date
+  }> = [
+      { bookingId: id, type: 'RESCHEDULE', channel: 'EMAIL', scheduledFor: now },
+      { bookingId: id, type: 'RESCHEDULE', channel: 'PUSH', scheduledFor: now },
+      { bookingId: id, type: 'RESCHEDULE', channel: 'IN_APP', scheduledFor: now },
+    ]
+
+  const time24h = new Date(newStartTime.getTime() - 24 * 60 * 60 * 1000)
+  const time1h = new Date(newStartTime.getTime() - 60 * 60 * 1000)
+  const time10m = new Date(newStartTime.getTime() - 10 * 60 * 1000)
+
+  if (time24h > now) {
+    notificationsToCreate.push(
+      { bookingId: id, type: 'REMINDER_24H', channel: 'EMAIL', scheduledFor: time24h },
+      { bookingId: id, type: 'REMINDER_24H', channel: 'PUSH', scheduledFor: time24h },
+      { bookingId: id, type: 'REMINDER_24H', channel: 'IN_APP', scheduledFor: time24h }
+    )
+  }
+  if (time1h > now) {
+    notificationsToCreate.push(
+      { bookingId: id, type: 'REMINDER_1H', channel: 'EMAIL', scheduledFor: time1h },
+      { bookingId: id, type: 'REMINDER_1H', channel: 'PUSH', scheduledFor: time1h },
+      { bookingId: id, type: 'REMINDER_1H', channel: 'IN_APP', scheduledFor: time1h }
+    )
+  }
+  if (time10m > now) {
+    notificationsToCreate.push(
+      { bookingId: id, type: 'REMINDER_10MIN', channel: 'EMAIL', scheduledFor: time10m },
+      { bookingId: id, type: 'REMINDER_10MIN', channel: 'PUSH', scheduledFor: time10m },
+      { bookingId: id, type: 'REMINDER_10MIN', channel: 'IN_APP', scheduledFor: time10m }
+    )
+  }
+
+  await prisma.notification.createMany({
+    data: notificationsToCreate,
+  }).catch(() => { })
+
+  processPendingNotifications(prisma).catch(() => { })
 
   res.json({
     success: true,
     message: 'Booking rescheduled successfully.',
     newStartTime: newSlot.startTime,
   })
+})
+
+// ─── Web Push Subscription Endpoints ─────────────────────────────────────────
+
+app.get('/api/push/vapid-public-key', (req, res) => {
+  res.json({ publicKey: getVapidPublicKey() })
+})
+
+app.post('/api/push/subscribe', async (req, res) => {
+  const { bookingId, subscription } = req.body
+  if (!bookingId || !subscription || !subscription.endpoint || !subscription.keys) {
+    return res.status(400).json({ error: 'bookingId and subscription (endpoint, keys) are required' })
+  }
+
+  try {
+    const pushSub = await prisma.pushSubscription.upsert({
+      where: { endpoint: subscription.endpoint },
+      update: {
+        bookingId,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+      },
+      create: {
+        bookingId,
+        endpoint: subscription.endpoint,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+      },
+    })
+    res.json({ success: true, pushSubscriptionId: pushSub.id })
+  } catch (err: any) {
+    console.error('[push-subscribe] Error:', err.message)
+    res.status(500).json({ error: 'Failed to save push subscription' })
+  }
+})
+
+// ─── In-App Notification Feed Endpoints ──────────────────────────────────────
+
+// Visitor Feed API: GET /api/notifications/visitor?bookingId=... OR visitorEmail=...
+app.get('/api/notifications/visitor', async (req, res) => {
+  const bookingId = req.query.bookingId as string
+  const visitorEmail = req.query.visitorEmail as string
+
+  if (!bookingId && !visitorEmail) {
+    return res.status(400).json({ error: 'bookingId or visitorEmail is required' })
+  }
+
+  try {
+    const rawNotifs = await prisma.notification.findMany({
+      where: {
+        channel: 'IN_APP',
+        status: 'SENT',
+        booking: bookingId
+          ? { id: bookingId }
+          : { visitorEmail: visitorEmail },
+      },
+      include: {
+        booking: {
+          include: { counsellor: true, payment: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    })
+
+    const clientBaseUrl = process.env.CLIENT_BASE_URL || 'http://localhost:3000'
+
+    const notifications = rawNotifs.map((n) => {
+      const b = n.booking
+      const counsellorName = b.counsellor?.name || 'Counsellor'
+      const startTimeFmt = new Date(b.startTime).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
+
+      let title = 'Notification'
+      let message = `Session update for your appointment`
+      let category: 'payment' | 'booking' | 'session' | 'cancellation' = 'booking'
+      let actionUrl = `${clientBaseUrl}/booking/manage?bookingId=${b.id}`
+
+      switch (n.type) {
+        case 'PAYMENT_RECEIPT':
+          title = 'Payment Received'
+          message = `Payment of ₹${b.payment ? Number(b.payment.amount) : 1500} confirmed for session with ${counsellorName}`
+          category = 'payment'
+          break
+        case 'BOOKING_CONFIRMATION':
+          title = 'Booking Confirmed'
+          message = `Your session with ${counsellorName} is confirmed for ${startTimeFmt}`
+          category = 'booking'
+          actionUrl = `${clientBaseUrl}/session?bookingId=${b.id}`
+          break
+        case 'REMINDER_24H':
+          title = 'Session Starting Tomorrow'
+          message = `Reminder: Your session with ${counsellorName} starts in 24 hours (${startTimeFmt})`
+          category = 'session'
+          actionUrl = `${clientBaseUrl}/session?bookingId=${b.id}`
+          break
+        case 'REMINDER_1H':
+          title = 'Session Starting in 1 Hour'
+          message = `Reminder: Get ready! Your session with ${counsellorName} starts in 1 hour`
+          category = 'session'
+          actionUrl = `${clientBaseUrl}/session?bookingId=${b.id}`
+          break
+        case 'REMINDER_10MIN':
+          title = 'Session Starting in 10 Minutes'
+          message = `Your video session with ${counsellorName} is starting now! Click to join.`
+          category = 'session'
+          actionUrl = `${clientBaseUrl}/session?bookingId=${b.id}`
+          break
+        case 'RESCHEDULE':
+          title = 'Session Rescheduled'
+          message = `Your session with ${counsellorName} was moved to ${startTimeFmt}`
+          category = 'booking'
+          break
+        case 'CANCELLATION':
+          title = 'Session Cancelled'
+          message = `Your session with ${counsellorName} scheduled for ${startTimeFmt} was cancelled`
+          category = 'cancellation'
+          break
+        case 'REFUND':
+          title = 'Refund Processed'
+          message = `A refund of ₹${b.payment ? Number(b.payment.amount) : 1500} has been issued to your original payment method`
+          category = 'payment'
+          break
+      }
+
+      return {
+        id: n.id,
+        bookingId: b.id,
+        type: n.type,
+        category,
+        title,
+        message,
+        actionUrl,
+        isRead: n.isRead,
+        createdAt: n.createdAt,
+        scheduledFor: n.scheduledFor,
+        counsellorName,
+        startTime: b.startTime,
+      }
+    })
+
+    const unreadCount = notifications.filter((n) => !n.isRead).length
+
+    res.json({ notifications, unreadCount })
+  } catch (err: any) {
+    console.error('[notifications-visitor] Error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch visitor notifications' })
+  }
+})
+
+// Counsellor Feed API: GET /api/notifications/counsellor?counsellorId=...
+app.get('/api/notifications/counsellor', async (req, res) => {
+  const counsellorId = req.query.counsellorId as string
+
+  if (!counsellorId) {
+    return res.status(400).json({ error: 'counsellorId is required' })
+  }
+
+  try {
+    const rawNotifs = await prisma.notification.findMany({
+      where: {
+        channel: 'IN_APP',
+        status: 'SENT',
+        booking: { counsellorId },
+      },
+      include: {
+        booking: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    })
+
+    const clientBaseUrl = process.env.CLIENT_BASE_URL || 'http://localhost:3000'
+
+    const notifications = rawNotifs.map((n) => {
+      const b = n.booking
+      const visitorName = b.visitorName || 'Client'
+      const startTimeFmt = new Date(b.startTime).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
+
+      let title = 'Notification'
+      let message = `Session update for ${visitorName}`
+      let category: 'payment' | 'booking' | 'session' | 'cancellation' = 'booking'
+      let actionUrl = `${clientBaseUrl}/session?bookingId=${b.id}`
+
+      switch (n.type) {
+        case 'BOOKING_CONFIRMATION':
+          title = 'New Booking Confirmed'
+          message = `New session booked by ${visitorName} for ${startTimeFmt}`
+          category = 'booking'
+          break
+        case 'REMINDER_24H':
+          title = 'Upcoming Session Tomorrow'
+          message = `Reminder: Session with ${visitorName} in 24 hours (${startTimeFmt})`
+          category = 'session'
+          break
+        case 'REMINDER_1H':
+          title = 'Session in 1 Hour'
+          message = `Reminder: Session with ${visitorName} starts in 1 hour`
+          category = 'session'
+          break
+        case 'REMINDER_10MIN':
+          title = 'Session Starting Now'
+          message = `Session with ${visitorName} starts in 10 minutes. Click to join room.`
+          category = 'session'
+          break
+        case 'RESCHEDULE':
+          title = 'Session Rescheduled'
+          message = `${visitorName} rescheduled their session to ${startTimeFmt}`
+          category = 'booking'
+          break
+        case 'CANCELLATION':
+          title = 'Session Cancelled'
+          message = `Session with ${visitorName} on ${startTimeFmt} was cancelled. Slot released.`
+          category = 'cancellation'
+          break
+        default:
+          title = 'Client Payment Update'
+          message = `Payment update received for ${visitorName}'s booking`
+          category = 'payment'
+          break
+      }
+
+      return {
+        id: n.id,
+        bookingId: b.id,
+        type: n.type,
+        category,
+        title,
+        message,
+        actionUrl,
+        isRead: n.isRead,
+        createdAt: n.createdAt,
+        scheduledFor: n.scheduledFor,
+        visitorName,
+        startTime: b.startTime,
+      }
+    })
+
+    const unreadCount = notifications.filter((n) => !n.isRead).length
+
+    res.json({ notifications, unreadCount })
+  } catch (err: any) {
+    console.error('[notifications-counsellor] Error:', err.message)
+    res.status(500).json({ error: 'Failed to fetch counsellor notifications' })
+  }
+})
+
+// Mark single notification as read
+app.patch('/api/notifications/:id/read', async (req, res) => {
+  const { id } = req.params
+  try {
+    const updated = await prisma.notification.update({
+      where: { id },
+      data: { isRead: true, readAt: new Date() },
+    })
+    res.json({ success: true, id: updated.id, isRead: true })
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to mark notification as read' })
+  }
+})
+
+// Mark all in-app notifications as read
+app.patch('/api/notifications/read-all', async (req, res) => {
+  const { bookingId, counsellorId } = req.body
+  if (!bookingId && !counsellorId) {
+    return res.status(400).json({ error: 'bookingId or counsellorId is required' })
+  }
+
+  try {
+    await prisma.notification.updateMany({
+      where: {
+        channel: 'IN_APP',
+        isRead: false,
+        booking: bookingId
+          ? { id: bookingId }
+          : { counsellorId },
+      },
+      data: { isRead: true, readAt: new Date() },
+    })
+    res.json({ success: true })
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to mark notifications as read' })
+  }
+})
+
+// ─── Notification Cron Scheduler (Runs every minute) ─────────────────────────
+cron.schedule('* * * * *', async () => {
+  try {
+    await processPendingNotifications(prisma)
+  } catch (err: any) {
+    console.error('[cron] Error processing pending notifications:', err.message)
+  }
 })
 
 const PORT = process.env.PORT || 4000
