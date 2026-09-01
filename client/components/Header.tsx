@@ -69,7 +69,7 @@ export default function Header() {
     >
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="w-8 h-8 rounded-full bg-sage flex items-center justify-center text-white font-display text-sm font-semibold group-hover:bg-sage-dark transition-colors">
+          <div className="w-8 h-8 rounded-full bg-sage flex items-center justify-center text-white font-display text-sm font-semibold group-hover:bg-sage-dark group-hover:rotate-12 transition-all duration-200">
             W
           </div>
           <span className="font-display text-lg text-ink tracking-tight">
@@ -82,7 +82,7 @@ export default function Header() {
             <Link
               key={item.href}
               href={item.href}
-              className="text-sm text-ink/60 hover:text-ink transition-colors relative after:absolute after:bottom-[-2px] after:left-0 after:w-0 after:h-[1.5px] after:bg-sage after:transition-all after:duration-300 hover:after:w-full"
+              className="nav-link-underline text-sm text-ink/60 hover:text-ink transition-colors duration-200"
             >
               {item.label}
             </Link>

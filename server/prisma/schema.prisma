@@ -145,6 +145,29 @@ model PushSubscription {
 
 // ─── Section 3.7: Admin Panel Models ──────────────────────────────────────────
 
+// ─── Counsellor Applications ──────────────────────────────────────────────────
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model CounsellorApplication {
+  id                String            @id @default(cuid())
+  fullName          String
+  email             String
+  phone             String
+  qualifications    String
+  yearsOfExperience Int
+  specialisation    String
+  bio               String
+  status            ApplicationStatus @default(PENDING)
+  createdAt         DateTime          @default(now())
+  reviewedAt        DateTime?
+  reviewNotes       String?
+}
+
 model StaticPage {
   id        String   @id @default(uuid())
   slug      String   @unique

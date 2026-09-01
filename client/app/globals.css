@@ -119,3 +119,157 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #4A635580;
 }
+
+/* ── New animation keyframes ─────────────────────────────────────── */
+
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes tag-pop {
+  from { opacity: 0; transform: scale(0.88); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes draw-line {
+  from { width: 0; }
+  to   { width: 100%; }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes arrow-slide {
+  0%   { transform: translateX(0); }
+  50%  { transform: translateX(4px); }
+  100% { transform: translateX(0); }
+}
+
+/* ── Animation utility classes ──────────────────────────────────── */
+
+.animate-marquee {
+  display: flex;
+  animation: marquee 28s linear infinite;
+}
+
+.reveal-up {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.55s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.55s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.reveal-up.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Stagger delays for reveal-up children */
+.reveal-stagger-1 { transition-delay: 0.05s; }
+.reveal-stagger-2 { transition-delay: 0.12s; }
+.reveal-stagger-3 { transition-delay: 0.19s; }
+.reveal-stagger-4 { transition-delay: 0.26s; }
+
+.tag-pop {
+  opacity: 0;
+  transform: scale(0.88);
+  transition: opacity 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+              transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+              background-color 0.2s ease,
+              border-color 0.2s ease;
+}
+.tag-pop.is-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Arrow bounce on hover */
+.btn-arrow svg.arrow-icon {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.btn-arrow:hover svg.arrow-icon {
+  transform: translateX(4px);
+}
+
+/* Float hero image */
+.animate-float-hero {
+  animation: float 6s ease-in-out infinite;
+}
+
+/* Improved card hover */
+.card-hover-premium {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.25s ease,
+              background-color 0.25s ease;
+}
+.card-hover-premium:hover {
+  transform: translateY(-3px) scale(1.005);
+  box-shadow: 0 12px 32px rgba(74, 99, 85, 0.14);
+  border-color: rgba(47, 68, 56, 0.25);
+  background-color: #2F4438 !important;
+  color: #fff;
+}
+.card-hover-premium:hover p,
+.card-hover-premium:hover span,
+.card-hover-premium:hover h3 {
+  color: rgba(255,255,255,0.9);
+}
+.card-hover-premium:hover .text-ink\/55,
+.card-hover-premium:hover .text-ink\/60,
+.card-hover-premium:hover .text-ink\/30,
+.card-hover-premium:hover .text-ink\/45 {
+  color: rgba(255,255,255,0.55);
+}
+.card-hover-premium:hover .bg-sage-light {
+  background-color: rgba(255,255,255,0.15);
+}
+.card-hover-premium:hover .border-sage\/10 {
+  border-color: rgba(255,255,255,0.15);
+}
+.card-hover-premium:hover .text-sage-dark {
+  color: rgba(255,255,255,0.9);
+}
+
+/* Nav underline improved easing */
+.nav-link-underline {
+  position: relative;
+}
+.nav-link-underline::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 0;
+  height: 1.5px;
+  background: #4A6355;
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.nav-link-underline:hover::after {
+  width: 100%;
+}
+
+/* prefers-reduced-motion — kill all custom animations */
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee,
+  .animate-float-hero,
+  .animate-fade-in,
+  .animate-fade-in-up,
+  .animate-page-enter,
+  .animate-pulse-soft,
+  .animate-float,
+  .reveal-up,
+  .tag-pop {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

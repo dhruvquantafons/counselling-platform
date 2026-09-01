@@ -23,6 +23,12 @@ const navLinks = [
   { href: "/admin/bookings", label: "Bookings" },
   { href: "/admin/payments", label: "Payments" },
   { href: "/admin/content", label: "Content" },
+  { href: "/admin/counsellor-applications", label: "Applications" },
+  { href: "/admin/audit", label: "Audit Log", active: true },
+];
+  { href: "/admin/bookings", label: "Bookings" },
+  { href: "/admin/payments", label: "Payments" },
+  { href: "/admin/content", label: "Content" },
   { href: "/admin/audit", label: "Audit Log", active: true },
 ];
 
