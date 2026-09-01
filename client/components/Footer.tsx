@@ -20,7 +20,7 @@ const footerLinks = [
   {
     title: "Counsellors",
     links: [
-      { label: "Join as counsellor", href: "#join" },
+      { label: "Join as counsellor", href: "/join-as-counsellor" },
       { label: "Counsellor guidelines", href: "#guidelines" },
       { label: "Resources", href: "#resources" },
     ],

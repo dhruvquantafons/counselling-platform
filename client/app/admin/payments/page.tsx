@@ -53,6 +53,7 @@ const navLinks = [
   { href: "/admin/bookings", label: "Bookings" },
   { href: "/admin/payments", label: "Payments", active: true },
   { href: "/admin/content", label: "Content" },
+  { href: "/admin/counsellor-applications", label: "Applications" },
   { href: "/admin/audit", label: "Audit Log" },
 ];
 

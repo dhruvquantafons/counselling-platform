@@ -2105,6 +2105,66 @@ app.delete('/api/admin/static-pages/:id', requireAdmin, async (req, res) => {
   res.json({ ok: true })
 })
 
+// ─── Counsellor Applications ──────────────────────────────────────────────────
+
+// Public: submit application
+app.post('/api/counsellor-applications', async (req, res) => {
+  const { fullName, email, phone, qualifications, yearsOfExperience, specialisation, bio } = req.body
+  if (!fullName || !email || !phone || !qualifications || yearsOfExperience === undefined || !specialisation || !bio) {
+    return res.status(400).json({ error: 'All fields are required' })
+  }
+  const years = parseInt(yearsOfExperience)
+  if (isNaN(years) || years < 0) return res.status(400).json({ error: 'yearsOfExperience must be a non-negative number' })
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(email)) return res.status(400).json({ error: 'Invalid email address' })
+
+  try {
+    const application = await prisma.counsellorApplication.create({
+      data: { fullName, email, phone, qualifications, yearsOfExperience: years, specialisation, bio }
+    })
+    await writeAuditLog('SUBMIT_COUNSELLOR_APPLICATION', 'CounsellorApplication', application.id, `New application from ${fullName} (${email})`)
+    res.status(201).json({ ok: true, id: application.id })
+  } catch (err: any) {
+    res.status(500).json({ error: 'Failed to submit application' })
+  }
+})
+
+// Admin: list applications with optional status filter
+app.get('/api/admin/counsellor-applications', requireAdmin, async (req, res) => {
+  const { status, page = '1', pageSize = '20' } = req.query as { status?: string; page?: string; pageSize?: string }
+  const p = parseInt(page) || 1
+  const ps = Math.min(parseInt(pageSize) || 20, 100)
+  const skip = (p - 1) * ps
+  const where = status ? { status: status as any } : {}
+  const [applications, total] = await Promise.all([
+    prisma.counsellorApplication.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: ps }),
+    prisma.counsellorApplication.count({ where }),
+  ])
+  res.json({ applications, total, page: p, pageSize: ps })
+})
+
+// Admin: review (approve/reject) application
+app.patch('/api/admin/counsellor-applications/:id', requireAdmin, async (req, res) => {
+  const { id } = req.params
+  const { status, reviewNotes } = req.body
+  if (!['APPROVED', 'REJECTED'].includes(status)) {
+    return res.status(400).json({ error: 'status must be APPROVED or REJECTED' })
+  }
+  const application = await prisma.counsellorApplication.findUnique({ where: { id } })
+  if (!application) return res.status(404).json({ error: 'Application not found' })
+
+  const updated = await prisma.counsellorApplication.update({
+    where: { id },
+    data: { status, reviewedAt: new Date(), ...(reviewNotes !== undefined && { reviewNotes }) }
+  })
+  await writeAuditLog(
+    status === 'APPROVED' ? 'APPROVE_COUNSELLOR_APPLICATION' : 'REJECT_COUNSELLOR_APPLICATION',
+    'CounsellorApplication', id,
+    `${status} application from ${application.fullName} (${application.email})`
+  )
+  res.json(updated)
+})
+
 // ─── Public Static Pages ──────────────────────────────────────────────────────
 
 app.get('/api/static-pages/:slug', async (req, res) => {
