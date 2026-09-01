@@ -9,7 +9,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
   // Static routes
-  const routes = [
+  const routes: MetadataRoute.Sitemap = [
     {
       url: `${siteUrl}`,
       lastModified: new Date(),
