@@ -44,9 +44,12 @@ function VisitorNotificationBell() {
   );
 }
 
+import { useUserAuth } from "@/app/context/UserAuthContext";
+
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const { user, logout } = useUserAuth();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -59,13 +62,21 @@ export default function Header() {
     setMenuOpen(false);
   }
 
+  const userInitials = user?.name
+    ? user.name
+      .split(" ")
+      .map((n) => n[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase()
+    : "U";
+
   return (
     <header
-      className={`sticky top-0 z-50 border-b transition-all duration-300 ${
-        scrolled
+      className={`sticky top-0 z-50 border-b transition-all duration-300 ${scrolled
           ? "bg-[#F8F7F2]/95 backdrop-blur-md border-sage/15 shadow-soft"
           : "bg-[#F8F7F2]/90 backdrop-blur-md border-sage/10"
-      }`}
+        }`}
     >
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5 group">
@@ -93,18 +104,41 @@ export default function Header() {
           <Suspense fallback={<NotificationFeed role="visitor" />}>
             <VisitorNotificationBell />
           </Suspense>
-          <Link
-            href="/directory"
-            className="text-sm font-medium text-sage-dark hover:text-sage transition-colors duration-150"
-          >
-            Sign in
-          </Link>
-          <Link
-            href="/directory"
-            className="text-sm font-medium bg-sage text-white px-5 py-2 rounded-full hover:bg-sage-dark hover:scale-[1.02] active:scale-[0.98] transition-all duration-150"
-          >
-            Get started
-          </Link>
+
+          {user ? (
+            <div className="flex items-center gap-3">
+              <Link
+                href="/user/profile"
+                className="flex items-center gap-2 bg-sage-light/70 hover:bg-sage-light text-sage-dark px-3 py-1.5 rounded-full text-xs font-medium border border-sage/20 transition-all"
+              >
+                <div className="w-6 h-6 rounded-full bg-sage text-white flex items-center justify-center text-[10px] font-bold">
+                  {userInitials}
+                </div>
+                <span>{user.name}</span>
+              </Link>
+              <button
+                onClick={logout}
+                className="text-xs font-medium text-ink/50 hover:text-ink transition-colors px-2 py-1"
+              >
+                Logout
+              </button>
+            </div>
+          ) : (
+            <>
+              <Link
+                href="/user/login"
+                className="text-sm font-medium text-sage-dark hover:text-sage transition-colors duration-150"
+              >
+                Login
+              </Link>
+              <Link
+                href="/user/register"
+                className="text-sm font-medium bg-sage text-white px-5 py-2 rounded-full hover:bg-sage-dark hover:scale-[1.02] active:scale-[0.98] transition-all duration-150 shadow-soft"
+              >
+                Sign Up
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Mobile hamburger */}
@@ -152,20 +186,46 @@ export default function Header() {
               </Link>
             ))}
             <div className="pt-3 mt-2 border-t border-sage/10 flex flex-col gap-2">
-              <Link
-                href="/directory"
-                onClick={handleNavClick}
-                className="text-sm font-medium text-sage-dark py-2"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/directory"
-                onClick={handleNavClick}
-                className="text-sm font-medium bg-sage text-white px-5 py-2.5 rounded-full text-center hover:bg-sage-dark active:scale-[0.98] transition-all duration-150"
-              >
-                Get started
-              </Link>
+              {user ? (
+                <>
+                  <Link
+                    href="/user/profile"
+                    onClick={handleNavClick}
+                    className="text-sm font-medium text-sage-dark py-2 flex items-center gap-2"
+                  >
+                    <div className="w-6 h-6 rounded-full bg-sage text-white flex items-center justify-center text-[10px] font-bold">
+                      {userInitials}
+                    </div>
+                    <span>My Profile ({user.name})</span>
+                  </Link>
+                  <button
+                    onClick={() => {
+                      logout();
+                      handleNavClick();
+                    }}
+                    className="text-sm font-medium text-red-600 text-left py-2"
+                  >
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/user/login"
+                    onClick={handleNavClick}
+                    className="text-sm font-medium text-sage-dark py-2"
+                  >
+                    Login
+                  </Link>
+                  <Link
+                    href="/user/register"
+                    onClick={handleNavClick}
+                    className="text-sm font-medium bg-sage text-white px-5 py-2.5 rounded-full text-center hover:bg-sage-dark active:scale-[0.98] transition-all duration-150"
+                  >
+                    Sign in
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -52,6 +52,8 @@ export const metadata: Metadata = {
   },
 };
 
+import { UserAuthProvider } from "@/app/context/UserAuthContext";
+
 export default function RootLayout({
   children,
 }: {
@@ -62,9 +64,11 @@ export default function RootLayout({
       <body
         className={`${fraunces.variable} ${inter.variable} ${plexMono.variable} font-sans bg-background text-foreground min-h-screen flex flex-col antialiased`}
       >
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
+        <UserAuthProvider>
+          <Header />
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </UserAuthProvider>
       </body>
     </html>
   );
