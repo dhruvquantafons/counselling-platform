@@ -201,6 +201,28 @@ export default async function Home() {
 
             {/* CTAs end */}
           </div>
+
+          {/* Mobile hero image — shown below text on small screens */}
+          <div className="md:hidden mt-8 relative flex justify-center">
+            {/* Soft oval behind image */}
+            <div
+              className="absolute inset-x-0 top-4 bottom-0 mx-auto"
+              style={{
+                width: "80%",
+                borderRadius: "50%",
+                background: "radial-gradient(ellipse at 50% 45%, #e8e3d8 0%, #e4dfd4 35%, transparent 72%)",
+              }}
+            />
+            <img
+              src="/hero.png"
+              alt="Counsellor"
+              className="relative z-10 w-64 object-contain"
+              style={{
+                WebkitMaskImage: "linear-gradient(to top, transparent 0%, black 15%, black 100%)",
+                maskImage: "linear-gradient(to top, transparent 0%, black 15%, black 100%)",
+              }}
+            />
+          </div>
         </div>
       </section>
 
@@ -212,7 +234,7 @@ export default async function Home() {
       </section>
 
       {/* How it works */}
-      <section id="how-it-works" className="max-w-6xl mx-auto px-6 pt-24 pb-12">
+      <section id="how-it-works" className="max-w-6xl mx-auto px-6 pt-12 md:pt-24 pb-12">
         <RevealSection className="max-w-xl mb-12">
           <p className="font-mono text-xs tracking-widest text-sage uppercase mb-3">
             How it works
@@ -247,7 +269,7 @@ export default async function Home() {
         </div>
 
         {/* Quote banner */}
-        <div className="flex justify-center">
+        <div className="flex justify-center overflow-hidden">
           <div
             className="relative overflow-hidden flex items-center px-8 w-full max-w-2xl animate-float"
             style={{
@@ -268,7 +290,7 @@ export default async function Home() {
 
       {/* Featured counsellors */}
       <section className="bg-sage-light/30 border-y border-sage/10">
-        <div className="max-w-6xl mx-auto px-6 py-24">
+        <div className="max-w-6xl mx-auto px-6 py-12 md:py-24">
           <RevealSection className="flex items-end justify-between mb-12">
             <div>
               <p className="font-mono text-xs tracking-wide text-sage uppercase mb-3">
