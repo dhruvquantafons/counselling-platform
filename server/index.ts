@@ -567,10 +567,16 @@ const razorpay = new Razorpay({
 // Step A: Create order (called when visitor clicks "Proceed to Pay")
 app.post('/api/payments/create-order', async (req, res) => {
   try {
-    const { counsellorId, name, email, phone } = req.body
+    const { counsellorId, name, email, phone, userId } = req.body
 
     const counsellor = await prisma.counsellor.findUnique({ where: { id: counsellorId } })
     if (!counsellor) return res.status(404).json({ error: 'Counsellor not found' })
+
+    let finalUserId = userId || null
+    if (!finalUserId && email) {
+      const existingUser = await prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } })
+      if (existingUser) finalUserId = existingUser.id
+    }
 
     const order = await razorpay.orders.create({
       amount: Number(counsellor.fee) * 100, // Razorpay expects paise
@@ -582,6 +588,7 @@ app.post('/api/payments/create-order', async (req, res) => {
     const booking = await prisma.booking.create({
       data: {
         counsellorId,
+        userId: finalUserId,
         visitorName: name,
         visitorEmail: email,
         visitorPhone: phone,
@@ -729,6 +736,179 @@ const pendingProfilesStore: Record<string, {
   photoUrl?: string
   updatedAt: string
 }> = {}
+
+// ─── USER AUTH & PROFILE ENDPOINTS ───
+const JWT_USER_SECRET = process.env.JWT_SECRET || 'user_auth_secret_key_2026'
+
+function hashUserPassword(password: string): string {
+  const salt = 'counselling_user_salt_2026'
+  return crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex')
+}
+
+function verifyUserPassword(password: string, hash: string): boolean {
+  return hashUserPassword(password) === hash
+}
+
+function generateUserToken(userId: string, email: string) {
+  return jwt.sign({ userId, email, role: 'user' }, JWT_USER_SECRET, { expiresIn: '7d' })
+}
+
+function verifyUserToken(token: string) {
+  try {
+    return jwt.verify(token, JWT_USER_SECRET) as { userId: string; email: string; role: string }
+  } catch {
+    return null
+  }
+}
+
+// User Register & Profile Creation
+app.post('/api/user/auth/register', async (req, res) => {
+  try {
+    const { name, email, phone, password, gender, age, bio } = req.body
+
+    if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required' })
+    if (!email || !String(email).trim()) return res.status(400).json({ error: 'Email is required' })
+    if (!phone || !String(phone).trim()) return res.status(400).json({ error: 'Mobile number is required' })
+    if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' })
+
+    const normalizedEmail = String(email).trim().toLowerCase()
+    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } })
+    if (existing) {
+      return res.status(400).json({ error: 'An account with this email already exists. Please log in.' })
+    }
+
+    const user = await prisma.user.create({
+      data: {
+        name: String(name).trim(),
+        email: normalizedEmail,
+        phone: String(phone).trim(),
+        passwordHash: hashUserPassword(password),
+        gender: gender ? String(gender) : null,
+        age: age ? parseInt(String(age), 10) : null,
+        bio: bio ? String(bio) : null,
+      },
+    })
+
+    const token = generateUserToken(user.id, user.email)
+    const { passwordHash, ...userWithoutPassword } = user
+    res.json({ token, user: userWithoutPassword })
+  } catch (err: any) {
+    console.error('[user/register] Error:', err)
+    res.status(500).json({ error: err.message || 'Registration failed' })
+  }
+})
+
+// User Login
+app.post('/api/user/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' })
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase()
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } })
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' })
+    }
+
+    if (!verifyUserPassword(password, user.passwordHash)) {
+      return res.status(401).json({ error: 'Invalid email or password' })
+    }
+
+    const token = generateUserToken(user.id, user.email)
+    const { passwordHash, ...userWithoutPassword } = user
+    res.json({ token, user: userWithoutPassword })
+  } catch (err: any) {
+    console.error('[user/login] Error:', err)
+    res.status(500).json({ error: err.message || 'Login failed' })
+  }
+})
+
+// Get Current User Profile
+app.get('/api/user/me', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+    const token = authHeader.split(' ')[1]
+    const decoded = verifyUserToken(token)
+    if (!decoded) return res.status(401).json({ error: 'Invalid or expired token' })
+
+    const user = await prisma.user.findUnique({ where: { id: decoded.userId } })
+    if (!user) return res.status(404).json({ error: 'User not found' })
+
+    const { passwordHash, ...userWithoutPassword } = user
+    res.json({ user: userWithoutPassword })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch user profile' })
+  }
+})
+
+// Update User Profile
+app.put('/api/user/profile', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+    const token = authHeader.split(' ')[1]
+    const decoded = verifyUserToken(token)
+    if (!decoded) return res.status(401).json({ error: 'Invalid or expired token' })
+
+    const { name, phone, gender, age, bio } = req.body
+
+    const user = await prisma.user.update({
+      where: { id: decoded.userId },
+      data: {
+        name: name !== undefined ? String(name).trim() : undefined,
+        phone: phone !== undefined ? String(phone).trim() : undefined,
+        gender: gender !== undefined ? String(gender) : undefined,
+        age: age ? parseInt(String(age), 10) : undefined,
+        bio: bio !== undefined ? String(bio) : undefined,
+      },
+    })
+
+    const { passwordHash, ...userWithoutPassword } = user
+    res.json({ user: userWithoutPassword })
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to update profile' })
+  }
+})
+
+// Get User Bookings
+app.get('/api/user/bookings', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+    const token = authHeader.split(' ')[1]
+    const decoded = verifyUserToken(token)
+    if (!decoded) return res.status(401).json({ error: 'Invalid or expired token' })
+
+    const bookings = await prisma.booking.findMany({
+      where: {
+        OR: [
+          { userId: decoded.userId },
+          { visitorEmail: decoded.email },
+        ],
+      },
+      include: {
+        counsellor: {
+          select: { id: true, name: true, specialisation: true, photoUrl: true },
+        },
+        payment: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    res.json(bookings)
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to fetch bookings' })
+  }
+})
 
 // 1. Login Step 1: Email & Password
 app.post('/api/counsellor/auth/login', async (req, res) => {

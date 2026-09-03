@@ -102,11 +102,15 @@ function PaymentBanner({
   );
 }
 
+import { useUserAuth } from "@/app/context/UserAuthContext";
+
 /* ─── Main inner component ──────────────────────────────────────────────── */
 function CheckoutInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const counsellorId = searchParams.get("counsellorId");
+
+  const { user, loading: authLoading } = useUserAuth();
 
   const [counsellor, setCounsellor] = useState<Counsellor | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,6 +119,23 @@ function CheckoutInner() {
   const [phone, setPhone] = useState("");
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("idle");
+
+  // Mandatory Profile Enforcement: redirect if not logged in
+  useEffect(() => {
+    if (!authLoading && !user && counsellorId) {
+      const checkoutUrl = `/checkout?counsellorId=${encodeURIComponent(counsellorId)}`;
+      router.push(`/user/register?redirect=${encodeURIComponent(checkoutUrl)}`);
+    }
+  }, [user, authLoading, counsellorId, router]);
+
+  // Pre-fill user profile details
+  useEffect(() => {
+    if (user) {
+      if (user.name && !name) setName(user.name);
+      if (user.email && !email) setEmail(user.email);
+      if (user.phone && !phone) setPhone(user.phone);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!counsellorId) return;
@@ -161,7 +182,7 @@ function CheckoutInner() {
       const orderRes = await fetch(`${API_BASE}/api/payments/create-order`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ counsellorId: counsellor.id, name, email, phone }),
+        body: JSON.stringify({ counsellorId: counsellor.id, name, email, phone, userId: user?.id }),
       });
 
       if (!orderRes.ok) {

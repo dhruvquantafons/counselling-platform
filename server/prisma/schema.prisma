@@ -46,10 +46,28 @@ model Availability {
   @@unique([counsellorId, startTime])
 }
 
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  phone        String
+  passwordHash String
+  gender       String?
+  age          Int?
+  bio          String?
+  avatarUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  bookings     Booking[]
+}
+
 model Booking {
   id                   String        @id @default(uuid())
   counsellorId         String
   counsellor           Counsellor    @relation(fields: [counsellorId], references: [id])
+  userId               String?
+  user                 User?         @relation(fields: [userId], references: [id])
   visitorName          String
   visitorEmail         String
   visitorPhone         String
@@ -63,7 +81,7 @@ model Booking {
   notifications        Notification[]
   pushSubscriptions    PushSubscription[]
 
-  @@unique([counsellorId, startTime]) // enforced again here at booking level
+  @@index([counsellorId, startTime])
 }
 
 enum BookingStatus {
