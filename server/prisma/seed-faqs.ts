@@ -4,6 +4,7 @@
  * Safe to re-run — skips any question that already exists.
  */
 
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
