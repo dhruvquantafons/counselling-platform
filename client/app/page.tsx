@@ -3,6 +3,12 @@ import type { Metadata } from "next";
 import RevealSection from "@/components/RevealSection";
 import TrustBarMarquee from "@/components/TrustBarMarquee";
 import AnimatedTags from "@/components/AnimatedTags";
+import VerifiedBadge, {
+  type VerifiedBadgeType,
+} from "@/components/VerifiedBadge";
+import Testimonials from "@/components/Testimonials";
+import HowTherapyHelps from "@/components/HowTherapyHelps";
+import TherapyImprovesCarousel from "@/components/TherapyImprovesCarousel";
 
 export const metadata: Metadata = {
   title: "Whybeigh — Online Counselling in India",
@@ -43,6 +49,19 @@ async function getCounsellors(): Promise<Counsellor[]> {
   } catch {
     return [];
   }
+}
+
+const badgeSets: Record<string, VerifiedBadgeType[]> = {
+  default: ["identity", "degree"],
+  senior: ["license", "sessions", "background"],
+  multilingual: ["identity", "languages", "degree"],
+};
+
+function pickBadges(c: Counsellor, index: number): VerifiedBadgeType[] {
+  if (index === 0) return badgeSets.senior;
+  if (index === 1) return badgeSets.multilingual;
+  if (index === 2) return badgeSets.default;
+  return ["identity", "degree", "background"];
 }
 
 const steps = [
@@ -110,7 +129,7 @@ export default async function Home() {
 
         {/* Studio background recreation — warm beige oval matching reference */}
         <div
-          className="hidden md:block absolute pointer-events-none"
+          className="hidden md:block absolute pointer-events-none animate-pulse-slow"
           style={{
             right: "8%",
             top: "50%",
@@ -288,79 +307,33 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Featured counsellors */}
-      <section className="bg-sage-light/30 border-y border-sage/10">
-        <div className="max-w-6xl mx-auto px-6 py-12 md:py-24">
-          <RevealSection className="flex items-end justify-between mb-12">
-            <div>
-              <p className="font-mono text-xs tracking-wide text-sage uppercase mb-3">
-                Featured counsellors
-              </p>
-              <h2 className="font-display text-3xl md:text-4xl text-ink">
-                Start with someone you trust.
-              </h2>
-            </div>
-            <Link
-              href="/directory"
-              className="btn-arrow hidden md:inline-flex items-center text-sm font-medium text-sage-dark hover:text-sage transition-colors duration-150 group"
-            >
-              View all
-              <svg className="arrow-icon ml-1 w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </Link>
+      {/* How Therapy Helps */}
+      <HowTherapyHelps />
+
+      {/* What Improves With Therapy */}
+      <section className="bg-sage-light/30 border-y border-sage/10 overflow-hidden">
+        <div className="max-w-6xl mx-auto px-8 md:px-14 py-12 md:py-20">
+          {/* Header */}
+          <RevealSection className="text-center mb-10">
+            <p className="font-mono text-xs tracking-widest text-sage uppercase mb-3">
+              Areas we help with
+            </p>
+            <h2 className="font-display text-3xl md:text-4xl font-bold text-ink leading-tight">
+              What Improves With Therapy
+            </h2>
+            <p className="mt-3 text-sm text-ink/60 max-w-xl mx-auto">
+              Therapy isn&apos;t a last resort — it&apos;s a skill. Here&apos;s what thousands of our clients have seen transform in their lives.
+            </p>
           </RevealSection>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-5">
-            {counsellors.slice(0, 4).map((c: Counsellor, i: number) => (
-              <RevealSection key={c.id} delay={((i + 1) as 1 | 2 | 3 | 4)}>
-                <Link
-                  href={`/directory/${c.id}`}
-                  className="card-hover-premium group bg-white rounded-2xl border border-sage/10 p-6 flex flex-col h-full"
-                >
-                  <div className="w-14 h-14 rounded-full bg-sage-light flex items-center justify-center font-display text-lg text-sage-dark mb-4 ring-2 ring-sage/10 group-hover:ring-sage/25 transition-all">
-                    {c.name
-                      .split(" ")
-                      .filter((w: string) => w[0] === w[0].toUpperCase() && w !== "Dr.")
-                      .map((w: string) => w[0])
-                      .slice(0, 2)
-                      .join("")}
-                  </div>
-                  <h3 className="font-display text-lg mb-1 text-ink group-hover:text-sage-dark transition-colors">
-                    {c.name}
-                  </h3>
-                  <p className="text-sm text-ink/60 mb-4 line-clamp-2">
-                    {c.specialisation} · {c.languages.join(", ")}
-                  </p>
-                  <div className="mt-auto flex items-center justify-between pt-4 border-t border-sage/10">
-                    <p className="font-mono text-base text-sage-dark">
-                      ₹{c.fee}
-                      <span className="text-ink/40 text-xs font-normal ml-1">
-                        / session
-                      </span>
-                    </p>
-                    <span className="text-xs text-amber font-medium opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all duration-150">
-                      View profile →
-                    </span>
-                  </div>
-                </Link>
-              </RevealSection>
-            ))}
-          </div>
-
-          <div className="mt-8 text-center md:hidden">
-            <Link
-              href="/directory"
-              className="inline-flex items-center text-sm font-medium text-sage-dark hover:text-sage transition-colors duration-150 group"
-            >
-              View all counsellors
-              <svg className="ml-1 w-4 h-4 group-hover:translate-x-1 transition-transform duration-150" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </Link>
-          </div>
+          {/* Carousel — client component (needs onClick) */}
+          <TherapyImprovesCarousel />
         </div>
       </section>
+
+
+      {/* Testimonials */}
+      <Testimonials />
 
       {/* CTA */}
       <section className="bg-sage-dark py-16 md:py-20">
