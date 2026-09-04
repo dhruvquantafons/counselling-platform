@@ -52,12 +52,12 @@ function RegisterInner() {
   }
 
   return (
-    <main className="max-w-xl mx-auto px-6 py-12 animate-fade-in">
-      <div className="bg-white border border-sage/15 rounded-3xl p-8 sm:p-10 shadow-soft-md">
-        <div className="text-center mb-8">
-          <div className="w-12 h-12 rounded-full bg-sage-light flex items-center justify-center mx-auto mb-3 text-sage-dark">
+    <main className="max-w-2xl mx-auto px-6 py-8 animate-fade-in">
+      <div className="bg-white border border-sage/15 rounded-3xl p-6 sm:p-7 shadow-soft-md">
+        <div className="text-center mb-5">
+          <div className="w-10 h-10 rounded-full bg-sage-light flex items-center justify-center mx-auto mb-2 text-sage-dark">
             <svg
-              className="w-6 h-6"
+              className="w-5 h-5"
               fill="none"
               stroke="currentColor"
               strokeWidth="1.5"
@@ -70,7 +70,7 @@ function RegisterInner() {
               />
             </svg>
           </div>
-          <h1 className="font-display text-2xl sm:text-3xl text-ink">
+          <h1 className="font-display text-xl sm:text-2xl text-ink">
             Create your profile
           </h1>
           <p className="text-sm text-ink/60 mt-1">
@@ -96,7 +96,7 @@ function RegisterInner() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-2.5">
           <div>
             <label className="block text-xs font-mono uppercase tracking-wide text-ink/60 mb-1">
               Full Name *
@@ -107,11 +107,11 @@ function RegisterInner() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Jane Doe"
-              className="w-full border border-sage/20 rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30"
+              className="w-full border border-sage/20 rounded-xl px-4 py-2 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30"
             />
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid sm:grid-cols-2 gap-3.5">
             <div>
               <label className="block text-xs font-mono uppercase tracking-wide text-ink/60 mb-1">
                 Email Address *
@@ -122,7 +122,7 @@ function RegisterInner() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="jane@example.com"
-                className="w-full border border-sage/20 rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30"
+                className="w-full border border-sage/20 rounded-xl px-4 py-2 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30"
               />
             </div>
 
@@ -136,7 +136,7 @@ function RegisterInner() {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="10-digit mobile number"
-                className="w-full border border-sage/20 rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30"
+                className="w-full border border-sage/20 rounded-xl px-4 py-2 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30"
               />
             </div>
           </div>
@@ -151,11 +151,11 @@ function RegisterInner() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 6 characters"
-              className="w-full border border-sage/20 rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30"
+              className="w-full border border-sage/20 rounded-xl px-4 py-2 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30"
             />
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid sm:grid-cols-2 gap-3.5">
             <div>
               <label className="block text-xs font-mono uppercase tracking-wide text-ink/60 mb-1">
                 Gender (Optional)
@@ -163,7 +163,7 @@ function RegisterInner() {
               <select
                 value={gender}
                 onChange={(e) => setGender(e.target.value)}
-                className="w-full border border-sage/20 rounded-xl px-4 py-3 bg-white text-ink focus:outline-none focus:ring-2 focus:ring-sage/30"
+                className="w-full border border-sage/20 rounded-xl px-4 py-2 bg-white text-ink focus:outline-none focus:ring-2 focus:ring-sage/30"
               >
                 <option value="">Select gender</option>
                 <option value="Female">Female</option>
@@ -184,7 +184,7 @@ function RegisterInner() {
                 value={age}
                 onChange={(e) => setAge(e.target.value)}
                 placeholder="e.g. 28"
-                className="w-full border border-sage/20 rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30"
+                className="w-full border border-sage/20 rounded-xl px-4 py-2 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30"
               />
             </div>
           </div>
@@ -194,18 +194,18 @@ function RegisterInner() {
               Profile Bio / Notes for Counsellor (Optional)
             </label>
             <textarea
-              rows={3}
+              rows={1}
               value={bio}
               onChange={(e) => setBio(e.target.value)}
               placeholder="Share anything you'd like your counsellor to know beforehand..."
-              className="w-full border border-sage/20 rounded-xl px-4 py-3 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30 resize-none text-sm"
+              className="w-full border border-sage/20 rounded-xl px-4 py-2 bg-white text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-sage/30 text-sm min-h-[40px]"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-sage text-white py-3.5 rounded-full font-medium hover:bg-sage-dark hover:scale-[1.01] active:scale-[0.98] transition-all duration-150 text-sm mt-4 disabled:opacity-50 flex items-center justify-center gap-2 shadow-soft"
+            className="w-full bg-sage text-white py-3 rounded-full font-medium hover:bg-sage-dark hover:scale-[1.01] active:scale-[0.98] transition-all duration-150 text-sm disabled:opacity-50 flex items-center justify-center gap-2 shadow-soft"
           >
             {loading ? (
               <>
@@ -233,7 +233,7 @@ function RegisterInner() {
           </button>
         </form>
 
-        <p className="text-center text-xs text-ink/50 mt-6">
+        <p className="text-center text-xs text-ink/50 mt-3.5">
           Already have an account?{" "}
           <Link
             href={`/user/login?redirect=${encodeURIComponent(redirect)}`}
@@ -251,7 +251,7 @@ export default function RegisterPage() {
   return (
     <Suspense
       fallback={
-        <div className="max-w-xl mx-auto px-6 py-16 text-center animate-pulse">
+        <div className="max-w-2xl mx-auto px-6 py-16 text-center animate-pulse">
           Loading sign in form...
         </div>
       }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -40,30 +40,40 @@ export function UserAuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const mounted = { current: true };
+    const controller = new AbortController();
+
     async function loadSavedUser() {
       if (typeof window !== "undefined") {
         const savedToken = localStorage.getItem("user_token");
         if (savedToken) {
-          setToken(savedToken);
+          if (mounted.current) setToken(savedToken);
           try {
             const res = await fetch(`${API_BASE}/api/user/me`, {
               headers: { Authorization: `Bearer ${savedToken}` },
+              signal: controller.signal,
             });
+            if (!mounted.current) return;
             if (res.ok) {
               const data = await res.json();
-              setUser(data.user);
+              if (mounted.current) setUser(data.user);
             } else {
               localStorage.removeItem("user_token");
-              setToken(null);
+              if (mounted.current) setToken(null);
             }
-          } catch {
-            // Server offline or network error
+          } catch (err) {
+            if ((err as any).name === "AbortError") return;
           }
         }
       }
-      setLoading(false);
+      if (mounted.current) setLoading(false);
     }
     loadSavedUser();
+
+    return () => {
+      mounted.current = false;
+      controller.abort();
+    };
   }, []);
 
   async function login(email: string, password: string) {

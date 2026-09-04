@@ -148,7 +148,7 @@ export default function NotificationFeed({
       <button
         onClick={() => setIsOpen((prev) => !prev)}
         aria-label="Notifications"
-        className="relative p-2 rounded-full text-ink/70 hover:text-ink hover:bg-sage/10 transition-colors focus:outline-none"
+        className="relative p-2 rounded-full text-white/80 hover:text-white hover:bg-white/10 transition-colors focus:outline-none"
       >
         <svg
           className="w-5 h-5"

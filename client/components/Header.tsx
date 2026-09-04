@@ -49,10 +49,17 @@ import { useUserAuth } from "@/app/context/UserAuthContext";
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
   const { user, logout } = useUserAuth();
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 10);
+    const onScroll = () => {
+      setScrolled(window.scrollY > 10);
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (totalHeight > 0) {
+        setScrollProgress((window.scrollY / totalHeight) * 100);
+      }
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
@@ -73,18 +80,24 @@ export default function Header() {
 
   return (
     <header
-      className={`sticky top-0 z-50 border-b transition-all duration-300 ${scrolled
-          ? "bg-[#F8F7F2]/95 backdrop-blur-md border-sage/15 shadow-soft"
-          : "bg-[#F8F7F2]/90 backdrop-blur-md border-sage/10"
+      className={`sticky top-0 z-50 border-b transition-all duration-300 bg-sage-dark border-white/10 ${
+          scrolled ? "shadow-md backdrop-blur-md bg-sage-dark/95" : "backdrop-blur-sm"
         }`}
     >
+      {/* Scroll Progress Bar */}
+      <div className="absolute top-0 left-0 right-0 h-0.5 bg-white/10 overflow-hidden z-50">
+        <div
+          className="h-full bg-gradient-to-r from-sage-light via-amber-light to-amber transition-all duration-150 ease-out"
+          style={{ width: `${scrollProgress}%` }}
+        />
+      </div>
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="w-8 h-8 rounded-full bg-sage flex items-center justify-center text-white font-display text-sm font-semibold group-hover:bg-sage-dark group-hover:rotate-12 transition-all duration-200">
+          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center text-sage-dark font-display text-sm font-semibold group-hover:bg-sage-light group-hover:rotate-12 transition-all duration-200">
             W
           </div>
-          <span className="font-display text-lg text-ink tracking-tight">
-            Why<span className="text-sage">beigh</span>
+          <span className="font-display text-lg text-white tracking-tight">
+            Why<span className="text-sage-light">beigh</span>
           </span>
         </Link>
 
@@ -93,7 +106,7 @@ export default function Header() {
             <Link
               key={item.href}
               href={item.href}
-              className="nav-link-underline text-sm text-ink/60 hover:text-ink transition-colors duration-200"
+              className="nav-link-underline text-sm text-white/75 hover:text-white transition-colors duration-200"
             >
               {item.label}
             </Link>
@@ -106,34 +119,38 @@ export default function Header() {
           </Suspense>
 
           {user ? (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <Link
                 href="/user/profile"
-                className="flex items-center gap-2 bg-sage-light/70 hover:bg-sage-light text-sage-dark px-3 py-1.5 rounded-full text-xs font-medium border border-sage/20 transition-all"
+                className="flex items-center gap-2 bg-white/15 hover:bg-white/25 text-white px-3 py-1.5 rounded-full text-xs font-medium border border-white/10 transition-all shadow-xs hover:shadow-soft"
               >
-                <div className="w-6 h-6 rounded-full bg-sage text-white flex items-center justify-center text-[10px] font-bold">
+                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-sage-light to-white text-sage-dark flex items-center justify-center text-[10px] font-bold shadow-xs">
                   {userInitials}
                 </div>
-                <span>{user.name}</span>
+                <span className="hidden sm:inline">{user.name}</span>
               </Link>
               <button
                 onClick={logout}
-                className="text-xs font-medium text-ink/50 hover:text-ink transition-colors px-2 py-1"
+                className="group inline-flex items-center gap-1.5 text-xs font-medium text-white/75 hover:text-white px-2.5 py-1.5 rounded-xl hover:bg-white/15 border border-transparent hover:border-white/10 transition-all"
+                title="Sign out of your account"
               >
-                Logout
+                <svg className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H2.25" />
+                </svg>
+                <span className="hidden sm:inline">Logout</span>
               </button>
             </div>
           ) : (
             <>
               <Link
                 href="/user/login"
-                className="text-sm font-medium text-sage-dark hover:text-sage transition-colors duration-150"
+                className="text-sm font-medium text-white/85 hover:text-white transition-colors duration-150"
               >
                 Login
               </Link>
               <Link
                 href="/user/register"
-                className="text-sm font-medium bg-sage text-white px-5 py-2 rounded-full hover:bg-sage-dark hover:scale-[1.02] active:scale-[0.98] transition-all duration-150 shadow-soft"
+                className="text-sm font-medium bg-sage-light text-sage-dark px-5 py-2 rounded-full hover:bg-white hover:scale-[1.02] active:scale-[0.98] transition-all duration-150 shadow-soft"
               >
                 Sign Up
               </Link>
@@ -143,7 +160,7 @@ export default function Header() {
 
         {/* Mobile hamburger */}
         <button
-          className="md:hidden p-2 -mr-2 text-ink/70 hover:text-ink transition-colors"
+          className="md:hidden p-2 -mr-2 text-white/80 hover:text-white transition-colors"
           aria-label={menuOpen ? "Close menu" : "Open menu"}
           onClick={() => setMenuOpen(!menuOpen)}
         >
@@ -173,27 +190,27 @@ export default function Header() {
 
       {/* Mobile menu */}
       {menuOpen && (
-        <div className="md:hidden border-t border-sage/10 bg-[#F8F7F2] animate-slide-down">
+        <div className="md:hidden border-t border-white/10 bg-sage-dark animate-slide-down">
           <div className="max-w-6xl mx-auto px-6 py-4 space-y-1">
             {nav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
                 onClick={handleNavClick}
-                className="block py-3 text-ink/70 hover:text-ink text-sm transition-colors"
+                className="block py-3 text-white/80 hover:text-white text-sm transition-colors"
               >
                 {item.label}
               </Link>
             ))}
-            <div className="pt-3 mt-2 border-t border-sage/10 flex flex-col gap-2">
+            <div className="pt-3 mt-2 border-t border-white/10 flex flex-col gap-2">
               {user ? (
                 <>
                   <Link
                     href="/user/profile"
                     onClick={handleNavClick}
-                    className="text-sm font-medium text-sage-dark py-2 flex items-center gap-2"
+                    className="text-sm font-medium text-white py-2 flex items-center gap-2"
                   >
-                    <div className="w-6 h-6 rounded-full bg-sage text-white flex items-center justify-center text-[10px] font-bold">
+                    <div className="w-6 h-6 rounded-full bg-white text-sage-dark flex items-center justify-center text-[10px] font-bold">
                       {userInitials}
                     </div>
                     <span>My Profile ({user.name})</span>
@@ -203,9 +220,12 @@ export default function Header() {
                       logout();
                       handleNavClick();
                     }}
-                    className="text-sm font-medium text-red-600 text-left py-2"
+                    className="w-full inline-flex items-center gap-2 text-sm font-medium text-white/90 hover:bg-white/15 text-left py-2.5 px-3 rounded-xl border border-transparent hover:border-white/10 transition-all"
                   >
-                    Logout
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H2.25" />
+                    </svg>
+                    <span className="font-medium">Sign Out</span>
                   </button>
                 </>
               ) : (
@@ -213,14 +233,14 @@ export default function Header() {
                   <Link
                     href="/user/login"
                     onClick={handleNavClick}
-                    className="text-sm font-medium text-sage-dark py-2"
+                    className="text-sm font-medium text-white/85 hover:text-white py-2"
                   >
                     Login
                   </Link>
                   <Link
                     href="/user/register"
                     onClick={handleNavClick}
-                    className="text-sm font-medium bg-sage text-white px-5 py-2.5 rounded-full text-center hover:bg-sage-dark active:scale-[0.98] transition-all duration-150"
+                    className="text-sm font-medium bg-sage-light text-sage-dark px-5 py-2.5 rounded-full text-center hover:bg-white active:scale-[0.98] transition-all duration-150"
                   >
                     Sign in
                   </Link>
