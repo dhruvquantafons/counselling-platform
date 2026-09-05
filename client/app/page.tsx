@@ -9,6 +9,7 @@ import VerifiedBadge, {
 import Testimonials from "@/components/Testimonials";
 import HowTherapyHelps from "@/components/HowTherapyHelps";
 import TherapyImprovesCarousel from "@/components/TherapyImprovesCarousel";
+import HeroBackgroundVideo from "@/components/HeroBackgroundVideo";
 
 export const metadata: Metadata = {
   title: "Whybeigh — Online Counselling in India",
@@ -106,78 +107,28 @@ export default async function Home() {
   return (
     <main className="animate-page-enter">
       {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 -z-10 bg-gradient-to-br from-sage-light/40 via-paper to-paper" />
+      <section className="relative overflow-hidden min-h-[560px] md:min-h-[620px] flex items-center">
+        {/* Background Video — continuous video of a person reading a book */}
+        <HeroBackgroundVideo />
 
-        {/* ── Hero image treatment ── */}
+        {/* Seamless full-screen gradient overlay — zero double shade split lines */}
+        <div className="absolute inset-0 -z-10 bg-gradient-to-r from-paper/90 via-paper/60 to-paper/20 w-full h-full pointer-events-none" />
+        <div className="absolute inset-0 -z-10 bg-gradient-to-b from-paper/40 via-transparent to-paper w-full h-full pointer-events-none" />
 
-        {/* Dot grid behind counsellor */}
-        <div
-          className="hidden md:block absolute pointer-events-none"
-          style={{
-            right: "3%",
-            top: "10%",
-            width: "400px",
-            height: "460px",
-            backgroundImage: "radial-gradient(circle, rgba(74,99,85,0.15) 1px, transparent 1px)",
-            backgroundSize: "22px 22px",
-            zIndex: 0,
-            WebkitMaskImage: "radial-gradient(ellipse 70% 75% at 55% 48%, black 20%, transparent 75%)",
-            maskImage: "radial-gradient(ellipse 70% 75% at 55% 48%, black 20%, transparent 75%)",
-          }}
-        />
-
-        {/* Studio background recreation — warm beige oval matching reference */}
-        <div
-          className="hidden md:block absolute pointer-events-none animate-pulse-slow"
-          style={{
-            right: "8%",
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: "500px",
-            height: "520px",
-            borderRadius: "50%",
-            background: "radial-gradient(ellipse at 50% 45%, #e8e3d8 0%, #e4dfd4 30%, #ddd8cd 55%, transparent 75%)",
-            zIndex: 1,
-          }}
-        />
-
-        {/* Counsellor image */}
-        <img
-          src="/hero.png"
-          alt="Counsellor"
-          aria-hidden="true"
-          className="hidden md:block absolute pointer-events-none select-none"
-          style={{
-            right: "12%",
-            bottom: "0",
-            height: "90%",
-            width: "auto",
-            maxWidth: "460px",
-            objectFit: "contain",
-            objectPosition: "bottom center",
-            zIndex: 2,
-            WebkitMaskImage: "linear-gradient(to top, transparent 0%, black 15%, black 100%)",
-            maskImage: "linear-gradient(to top, transparent 0%, black 15%, black 100%)",
-            transform: "rotate(1.5deg)",
-            transformOrigin: "bottom center",
-          }}
-        />
-
-        <div className="max-w-6xl mx-auto px-6 pt-16 pb-14 md:pt-24 md:pb-20">
+        <div className="max-w-6xl mx-auto px-6 pt-16 pb-14 md:pt-24 md:pb-20 w-full relative z-10">
           <div className="max-w-xl animate-fade-in-up">
             {/* Badge */}
-            <div className="inline-flex items-center gap-1.5 mb-5 border border-sage/30 rounded-full px-3 py-1 bg-white/60 backdrop-blur-sm shadow-soft animate-float">
+            <div className="inline-flex items-center gap-1.5 mb-5 border border-sage/30 rounded-full px-3.5 py-1.5 bg-white/80 backdrop-blur-md shadow-soft animate-float">
               <svg className="w-3 h-3 text-sage" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M17 8C8 10 5.9 16.17 3.82 19.87L5.71 21l1-1.9A4.49 4.49 0 008 20C10.24 20 12 18.24 12 16a4 4 0 00-4-4 3.69 3.69 0 00-1 .15C8.34 10.85 10.7 9.11 17 8z"/>
               </svg>
-              <p className="font-mono text-xs tracking-widest text-sage uppercase">
+              <p className="font-mono text-xs tracking-widest text-sage uppercase font-medium">
                 Online counselling, reimagined
               </p>
             </div>
 
             {/* Heading */}
-            <h1 className="font-display text-4xl md:text-5xl font-bold leading-[1.1] mb-3 text-ink">
+            <h1 className="font-display text-4xl md:text-5xl font-bold leading-[1.1] mb-4 text-ink">
               Talk to someone who{" "}
               <span className="relative inline-block">
                 <span className="relative z-10">actually</span>
@@ -187,7 +138,7 @@ export default async function Home() {
             </h1>
 
             {/* Subtext */}
-            <p className="text-base text-ink/70 mb-8 leading-relaxed max-w-md">
+            <p className="text-base md:text-lg text-ink/80 mb-8 leading-relaxed max-w-md font-normal">
               Verified counsellors, transparent fees, and private
               video sessions. Because getting help should feel
               as normal as booking a doctor&apos;s appointment.
@@ -197,7 +148,7 @@ export default async function Home() {
             <div className="flex flex-col sm:flex-row gap-3">
               <Link
                 href="/directory"
-                className="btn-arrow inline-flex items-center justify-center bg-sage-dark text-white px-6 py-3 rounded-full font-medium hover:bg-sage hover:scale-[1.02] hover:shadow-soft active:scale-[0.98] transition-all duration-200 text-sm gap-2"
+                className="btn-arrow inline-flex items-center justify-center bg-sage-dark text-white px-6 py-3 rounded-full font-medium hover:bg-sage hover:scale-[1.02] hover:shadow-md active:scale-[0.98] transition-all duration-200 text-sm gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
@@ -209,7 +160,7 @@ export default async function Home() {
               </Link>
               <Link
                 href="#how-it-works"
-                className="inline-flex items-center justify-center border border-ink/20 text-ink bg-white/60 px-6 py-3 rounded-full font-medium hover:bg-sage-light/60 hover:scale-[1.02] active:scale-[0.98] transition-all duration-150 text-sm gap-2"
+                className="inline-flex items-center justify-center border border-ink/20 text-ink bg-white/80 backdrop-blur-sm px-6 py-3 rounded-full font-medium hover:bg-white hover:scale-[1.02] active:scale-[0.98] transition-all duration-150 text-sm gap-2 shadow-xs"
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 000-1.69L9.54 5.98A.998.998 0 008 6.82z"/>
@@ -217,30 +168,6 @@ export default async function Home() {
                 How it works
               </Link>
             </div>
-
-            {/* CTAs end */}
-          </div>
-
-          {/* Mobile hero image — shown below text on small screens */}
-          <div className="md:hidden mt-8 relative flex justify-center">
-            {/* Soft oval behind image */}
-            <div
-              className="absolute inset-x-0 top-4 bottom-0 mx-auto"
-              style={{
-                width: "80%",
-                borderRadius: "50%",
-                background: "radial-gradient(ellipse at 50% 45%, #e8e3d8 0%, #e4dfd4 35%, transparent 72%)",
-              }}
-            />
-            <img
-              src="/hero.png"
-              alt="Counsellor"
-              className="relative z-10 w-64 object-contain"
-              style={{
-                WebkitMaskImage: "linear-gradient(to top, transparent 0%, black 15%, black 100%)",
-                maskImage: "linear-gradient(to top, transparent 0%, black 15%, black 100%)",
-              }}
-            />
           </div>
         </div>
       </section>
